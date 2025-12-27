@@ -17,6 +17,7 @@ USCISUnitType = Literal["Apt", "Ste", "Fl", "Unit"]
 AddressType = Literal["lived", "temporary", "mailing"]
 EmploymentType = Literal["employed", "self_employed", "unemployed"]
 TravelEventType = Literal["entry", "exit"]
+DatePrecision = Literal["day", "month", "year"]
 
 RelatedPurpose = Literal[
     "employer_location",
@@ -65,15 +66,16 @@ class PostalAddress(BaseModel):
 # ======================================================
 
 class AddressEntry(BaseModel):
-    """
-    Residential address history entry.
-    date_to=None means "Present".
-    """
     address: PostalAddress
     date_from: date
+    from_precision: DatePrecision = "day"
+
     date_to: Optional[date] = None
+    to_precision: DatePrecision = "day"
+
     address_type: AddressType = "lived"
     notes: Optional[str] = None
+
 
 
 class RelatedAddress(BaseModel):
