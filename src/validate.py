@@ -6,10 +6,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional, List, Literal
 
-from src.models import AddressEntry  # adjust to ".models" if you prefer package imports
-
-
-DatePrecision = Literal["day", "month", "year"]
+from .models import AddressEntry, DatePrecision
 
 
 @dataclass(frozen=True)
@@ -33,9 +30,7 @@ def _last_day_of_month(y: int, m: int) -> date:
 
 
 def _precision_range_start(dwp: DateWithPrecision) -> date:
-    """
-    Earliest possible date covered by this value given its precision.
-    """
+    """Earliest possible date for the given precision."""
     if dwp.precision == "day":
         return dwp.value
     if dwp.precision == "month":
@@ -45,9 +40,7 @@ def _precision_range_start(dwp: DateWithPrecision) -> date:
 
 
 def _precision_range_end(dwp: DateWithPrecision) -> date:
-    """
-    Latest possible date covered by this value given its precision.
-    """
+    """Latest possible date for the given precision."""
     if dwp.precision == "day":
         return dwp.value
     if dwp.precision == "month":
@@ -65,13 +58,14 @@ def detect_address_gaps(
     """
     Precision-aware gap detection for residential address history.
 
-    Each entry is treated as a COVERAGE RANGE:
-      start = earliest possible start based on from_precision
-      end   = latest possible end based on to_precision
-    date_to=None is treated as "Present" -> window_end.
-    """
-    issues: List[Issue] = []
+    Each AddressEntry covers a RANGE:
+      start = earliest possible date based on from_precision
+      end   = latest possible date based on to_precision
 
+    date_to=None means "Present", which we treat as covering through window_end.
+    A gap exists if:
+      prev_end + 1 day < next_start
+    """
     if not addresses:
         return [
             Issue(
@@ -82,27 +76,24 @@ def detect_address_gaps(
             )
         ]
 
-    # Build coverage ranges: (start, end, entry)
     ranges = []
     for entry in addresses:
-        # Start coverage
-        start_dwp = DateWithPrecision(entry.date_from, entry.from_precision)
-        start = _precision_range_start(start_dwp)
+        start = _precision_range_start(DateWithPrecision(entry.date_from, entry.from_precision))
 
-        # End coverage (Present -> window_end)
-        effective_end_date = entry.date_to or window_end
-        end_precision = entry.to_precision if entry.date_to is not None else "day"
-        # ^ If date_to is None ("Present"), treat as exact day at window_end
-        end_dwp = DateWithPrecision(effective_end_date, end_precision)
-        end = _precision_range_end(end_dwp)
+        effective_end = entry.date_to or window_end
+        # If date_to is None ("Present"), treat it as day-precision at window_end
+        end_precision: DatePrecision = entry.to_precision if entry.date_to is not None else "day"
+        end = _precision_range_end(DateWithPrecision(effective_end, end_precision))
 
-        # Clamp to the window
+        # Ignore entries fully outside window
         if end < window_start or start > window_end:
             continue
+
+        # Clamp to window
         start = max(start, window_start)
         end = min(end, window_end)
 
-        ranges.append((start, end, entry))
+        ranges.append((start, end))
 
     if not ranges:
         return [
@@ -114,10 +105,11 @@ def detect_address_gaps(
             )
         ]
 
-    # Sort by start then end
     ranges.sort(key=lambda x: (x[0], x[1]))
 
-    # Gap at beginning
+    issues: List[Issue] = []
+
+    # Start gap
     first_start = ranges[0][0]
     if first_start > window_start:
         gap_from = window_start
@@ -131,9 +123,9 @@ def detect_address_gaps(
             )
         )
 
-    # Walk and find gaps
-    prev_start, prev_end, _prev_entry = ranges[0]
-    for curr_start, curr_end, _curr_entry in ranges[1:]:
+    # Middle gaps
+    prev_end = ranges[0][1]
+    for curr_start, curr_end in ranges[1:]:
         if prev_end + timedelta(days=1) < curr_start:
             gap_from = prev_end + timedelta(days=1)
             gap_to = curr_start - timedelta(days=1)
@@ -148,10 +140,9 @@ def detect_address_gaps(
                 )
             )
 
-        # extend coverage through overlaps/back-to-back
         prev_end = max(prev_end, curr_end)
 
-    # Gap at end
+    # End gap
     if prev_end < window_end:
         gap_from = prev_end + timedelta(days=1)
         gap_to = window_end
