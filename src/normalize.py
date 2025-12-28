@@ -30,10 +30,7 @@ class NormalizedDate:
 
 
 def _safe_date(y: int, m: int, d: int) -> Optional[date]:
-    """
-    Safely construct a date.
-    Returns None if the date is invalid (e.g., 02/31/2023).
-    """
+    """Return None instead of raising ValueError for invalid dates (e.g., 02/31/2023)."""
     try:
         return date(y, m, d)
     except ValueError:
@@ -45,20 +42,19 @@ def normalize_date(text: Optional[str], assume_us_mdy: bool = True) -> Normalize
     Normalize common intake date strings into a comparable date + precision.
 
     Supported inputs:
-      - "Present", "Current", "Now"
+      - "Present", "Current", "Now" (any capitalization)
       - "YYYY-MM-DD"
       - "YYYY-MM"
       - "MM/YYYY"
       - "YYYY"
-      - "MM/DD/YYYY"  (US-style; enabled because questionnaire specifies this)
+      - "MM/DD/YYYY"  (US-style; enabled when intake specifies this format)
 
     Design decisions:
       - Month-only dates use the 1st of the month as a placeholder
       - Year-only dates use Jan 1 as a placeholder
-      - Precision is ALWAYS tracked separately
-      - Invalid dates NEVER raise exceptions
+      - Precision is tracked separately (critical for gap detection)
+      - Invalid dates NEVER crash the program
     """
-
     if text is None:
         return NormalizedDate(value=None, precision="unknown", is_present=False)
 
@@ -70,68 +66,69 @@ def normalize_date(text: Optional[str], assume_us_mdy: bool = True) -> Normalize
     if s_lower in {"present", "current", "now"}:
         return NormalizedDate(value=None, precision="day", is_present=True)
 
-    # ---------- ISO formats (least ambiguous) ----------
-
     # YYYY-MM-DD
     m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", s)
     if m:
         y, mo, d = map(int, m.groups())
         dt = _safe_date(y, mo, d)
-        if dt:
-            return NormalizedDate(value=dt, precision="day", is_present=False)
-        return NormalizedDate(value=None, precision="unknown", is_present=False)
+        return (
+            NormalizedDate(value=dt, precision="day", is_present=False)
+            if dt
+            else NormalizedDate(value=None, precision="unknown", is_present=False)
+        )
 
     # YYYY-MM
     m = re.fullmatch(r"(\d{4})-(\d{2})", s)
     if m:
         y, mo = map(int, m.groups())
         dt = _safe_date(y, mo, 1)
-        if dt:
-            return NormalizedDate(value=dt, precision="month", is_present=False)
-        return NormalizedDate(value=None, precision="unknown", is_present=False)
-
-    # ---------- Slash formats ----------
+        return (
+            NormalizedDate(value=dt, precision="month", is_present=False)
+            if dt
+            else NormalizedDate(value=None, precision="unknown", is_present=False)
+        )
 
     # MM/YYYY
     m = re.fullmatch(r"(\d{1,2})/(\d{4})", s)
     if m:
         mo, y = map(int, m.groups())
         dt = _safe_date(y, mo, 1)
-        if dt:
-            return NormalizedDate(value=dt, precision="month", is_present=False)
-        return NormalizedDate(value=None, precision="unknown", is_present=False)
-
-    # ---------- Year-only ----------
+        return (
+            NormalizedDate(value=dt, precision="month", is_present=False)
+            if dt
+            else NormalizedDate(value=None, precision="unknown", is_present=False)
+        )
 
     # YYYY
     m = re.fullmatch(r"(\d{4})", s)
     if m:
         y = int(m.group(1))
         dt = _safe_date(y, 1, 1)
-        if dt:
-            return NormalizedDate(value=dt, precision="year", is_present=False)
-        return NormalizedDate(value=None, precision="unknown", is_present=False)
+        return (
+            NormalizedDate(value=dt, precision="year", is_present=False)
+            if dt
+            else NormalizedDate(value=None, precision="unknown", is_present=False)
+        )
 
-    # ---------- US questionnaire format (most ambiguous → last) ----------
-
-    # MM/DD/YYYY (US-style, because intake specifies this format)
+    # MM/DD/YYYY (US-style, because questionnaire specifies this format)
     if assume_us_mdy:
         m = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", s)
         if m:
             mo, d, y = map(int, m.groups())
             dt = _safe_date(y, mo, d)
-            if dt:
-                return NormalizedDate(value=dt, precision="day", is_present=False)
-            return NormalizedDate(value=None, precision="unknown", is_present=False)
+            return (
+                NormalizedDate(value=dt, precision="day", is_present=False)
+                if dt
+                else NormalizedDate(value=None, precision="unknown", is_present=False)
+            )
 
     return NormalizedDate(value=None, precision="unknown", is_present=False)
 
 
 def end_date_or_today(nd: NormalizedDate, today: Optional[date] = None) -> Optional[date]:
     """
-    Convert an end date to something comparable for overlap/gap checks.
-    - 'Present' → today's date
-    - unknown → None
+    If end date is 'Present', return today's date.
+    Otherwise return the parsed date (or None).
     """
     if nd.is_present:
         return today or date.today()

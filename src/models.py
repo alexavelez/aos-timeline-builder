@@ -24,6 +24,9 @@ RelatedPurpose = Literal[
     "relative_home",
     "used_on_application",
     "mailing",
+    "prior_spouse_home",
+    "joint_asset_property",
+    "last_address_together",
     "other",
 ]
 
@@ -66,7 +69,13 @@ class PostalAddress(BaseModel):
 # ======================================================
 
 class AddressEntry(BaseModel):
+    """
+    Residential address history entry.
+    date_to=None means "Present".
+    Precision fields help avoid false gaps when only month/year are known.
+    """
     address: PostalAddress
+
     date_from: date
     from_precision: DatePrecision = "day"
 
@@ -75,7 +84,6 @@ class AddressEntry(BaseModel):
 
     address_type: AddressType = "lived"
     notes: Optional[str] = None
-
 
 
 class RelatedAddress(BaseModel):
@@ -121,6 +129,16 @@ class PersonData(BaseModel):
     """
     name: Optional[PersonName] = None
 
+    # Identifiers (treat as sensitive in logs/UI)
+    a_number: Optional[str] = None
+    ssn: Optional[str] = None
+    uscis_online_account_number: Optional[str] = None
+
+    # USCIS asks if mailing address is same as physical address
+    current_physical_address: Optional[PostalAddress] = None
+    current_mailing_address: Optional[PostalAddress] = None
+    mailing_same_as_physical: Optional[bool] = None
+
     # Residential timeline (typically last 5 years)
     addresses_lived: List[AddressEntry] = Field(default_factory=list)
 
@@ -143,9 +161,15 @@ class ImmigrationCase(BaseModel):
     """
     Marriage-based adjustment case.
     Keeps petitioner and beneficiary clearly separated.
+    Includes marriage anchor fields used across forms.
     """
     petitioner: PersonData
     beneficiary: PersonData
+
+    marriage_date: Optional[date] = None
+    marriage_city: Optional[str] = None
+    marriage_state_province: Optional[str] = None
+    marriage_country: Optional[str] = None
 
 
 # ======================================================
@@ -158,7 +182,18 @@ if __name__ == "__main__":
             name=PersonName(
                 first_name="John",
                 last_name="Smith",
-            )
+            ),
+            ssn="123-45-6789",
+            current_physical_address=PostalAddress(
+                street_name="1 Main St",
+                unit_type="Apt",
+                unit_number="2A",
+                city="Charlotte",
+                state_province="NC",
+                zip_code="28209",
+                country="USA",
+            ),
+            mailing_same_as_physical=True,
         ),
         beneficiary=PersonData(
             name=PersonName(
@@ -167,6 +202,7 @@ if __name__ == "__main__":
                 last_name="Velez Rodas",
                 other_names_used=["Alexandra Velez"],
             ),
+            a_number="A123456789",
             last_foreign_address=PostalAddress(
                 street_name="CLL 36D Sur # 27-160",
                 unit_type="Apt",
@@ -177,6 +213,11 @@ if __name__ == "__main__":
                 country="Colombia",
             ),
         ),
+        marriage_date=date(2025, 6, 15),
+        marriage_city="Charlotte",
+        marriage_state_province="NC",
+        marriage_country="USA",
     )
 
+    # Avoid printing sensitive fields in real usage; this is only a sanity test.
     print(case.model_dump())
