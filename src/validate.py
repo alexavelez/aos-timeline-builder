@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Tuple
 
 from .models import AddressEntry, DatePrecision
 
@@ -21,14 +21,15 @@ class Issue:
     category: str
     message: str
     suggested_question: Optional[str] = None
+    ref_id: Optional[str] = None
 
-# Given a year and a month, return the last calendar day of that month, and handle December special case 
+
 def _last_day_of_month(y: int, m: int) -> date:
     if m == 12:
         return date(y, 12, 31)
     return date(y, m + 1, 1) - timedelta(days=1)
 
-# Convert “a date + precision” into the earliest date that could be true
+
 def _precision_range_start(dwp: DateWithPrecision) -> date:
     """Earliest possible date for the given precision."""
     if dwp.precision == "day":
@@ -38,7 +39,7 @@ def _precision_range_start(dwp: DateWithPrecision) -> date:
     # year
     return date(dwp.value.year, 1, 1)
 
-# The latest possible date that could be true
+
 def _precision_range_end(dwp: DateWithPrecision) -> date:
     """Latest possible date for the given precision."""
     if dwp.precision == "day":
@@ -48,42 +49,28 @@ def _precision_range_end(dwp: DateWithPrecision) -> date:
     # year
     return date(dwp.value.year, 12, 31)
 
-# use * (keyword arguments) to prevent dangerous swaping of window dates and improve readability
-def detect_address_gaps(
+
+def _build_address_ranges(
     addresses: List[AddressEntry],
     *,
     window_start: date,
     window_end: date,
-) -> List[Issue]:
+) -> List[Tuple[date, date, AddressEntry]]:
     """
-    Precision-aware gap detection for residential address history.
+    Convert AddressEntry records into clamped coverage ranges within [window_start, window_end].
 
-    Each AddressEntry covers a RANGE:
+    Each entry covers:
       start = earliest possible date based on from_precision
       end   = latest possible date based on to_precision
 
-    date_to=None means "Present", which we treat as covering through window_end.
-    A gap exists if:
-      prev_end + 1 day < next_start
+    date_to=None means "Present", treated as covering through window_end with day precision.
     """
-    if not addresses:
-        return [
-            Issue(
-                severity="high",
-                category="address_history",
-                message="No residential addresses provided for the selected window.",
-                suggested_question="Please provide your residential address history for the required period.",
-            )
-        ]
+    ranges: List[Tuple[date, date, AddressEntry]] = []
 
-    ranges = []
     for entry in addresses:
-        # Uses date_from + from_precision. If precision is month/year, start becomes the earliest possible date
         start = _precision_range_start(DateWithPrecision(entry.date_from, entry.from_precision))
 
-        # We need real ranges to compare If there’s a real date_to, use it and its precision, otherwise "pretend" it ends at window_end
         effective_end = entry.date_to or window_end
-        # If date_to is None ("Present"), treat it as day-precision at window_end
         end_precision: DatePrecision = entry.to_precision if entry.date_to is not None else "day"
         end = _precision_range_end(DateWithPrecision(effective_end, end_precision))
 
@@ -95,9 +82,46 @@ def detect_address_gaps(
         start = max(start, window_start)
         end = min(end, window_end)
 
-        ranges.append((start, end))
+        ranges.append((start, end, entry))
 
-    if not ranges:
+    ranges.sort(key=lambda x: (x[0], x[1]))
+    return ranges
+
+
+def detect_address_gaps(
+    addresses: List[AddressEntry],
+    *,
+    window_start: date,
+    window_end: date,
+) -> List[Issue]:
+    """
+    Precision-aware gap detection for residential address history.
+
+    Hybrid severity policy:
+      - Start-of-window gaps: HIGH (even 1 day)
+      - End-of-window gaps:   HIGH (even 1 day)
+      - Middle gaps:
+          * 1 day   -> MEDIUM
+          * >=2 days -> HIGH
+    """
+
+    def _middle_gap_severity(gap_days: int) -> Literal["high", "medium"]:
+        return "medium" if gap_days == 1 else "high"
+
+    if not addresses:
+        return [
+            Issue(
+                severity="high",
+                category="address_history",
+                message="No residential addresses provided for the selected window.",
+                suggested_question="Please provide your residential address history for the required period.",
+            )
+        ]
+
+    # Reuse shared range builder (precision-aware + window-clamped)
+    raw_ranges = _build_address_ranges(addresses, window_start=window_start, window_end=window_end)
+
+    if not raw_ranges:
         return [
             Issue(
                 severity="high",
@@ -107,11 +131,12 @@ def detect_address_gaps(
             )
         ]
 
-    ranges.sort(key=lambda x: (x[0], x[1]))
+    # We only need (start, end) for gap math
+    ranges = [(start, end) for start, end, _entry in raw_ranges]
 
     issues: List[Issue] = []
 
-    # Start gap
+    # Start gap (always HIGH)
     first_start = ranges[0][0]
     if first_start > window_start:
         gap_from = window_start
@@ -125,28 +150,28 @@ def detect_address_gaps(
             )
         )
 
-    # Middle gaps
-    prev_end = ranges[0][1]
+    # Middle gaps (track high-water mark to handle nested/overlapping ranges)
+    current_max_end = ranges[0][1]
     for curr_start, curr_end in ranges[1:]:
-        if prev_end + timedelta(days=1) < curr_start:
-            gap_from = prev_end + timedelta(days=1)
+        if curr_start > current_max_end + timedelta(days=1):
+            gap_from = current_max_end + timedelta(days=1)
             gap_to = curr_start - timedelta(days=1)
             gap_days = (gap_to - gap_from).days + 1
 
             issues.append(
                 Issue(
-                    severity="high",
+                    severity=_middle_gap_severity(gap_days),
                     category="address_history",
                     message=f"Unexplained address gap of {gap_days} day(s): {gap_from} to {gap_to}.",
                     suggested_question=f"Where did you live from {gap_from} to {gap_to}?",
                 )
             )
 
-        prev_end = max(prev_end, curr_end)
+        current_max_end = max(current_max_end, curr_end)
 
-    # End gap
-    if prev_end < window_end:
-        gap_from = prev_end + timedelta(days=1)
+    # End gap (always HIGH)
+    if current_max_end < window_end:
+        gap_from = current_max_end + timedelta(days=1)
         gap_to = window_end
         issues.append(
             Issue(
@@ -156,5 +181,67 @@ def detect_address_gaps(
                 suggested_question=f"Where did you live from {gap_from} to {gap_to}?",
             )
         )
+
+    return issues
+
+
+def detect_address_overlaps(
+    addresses: List[AddressEntry],
+    *,
+    window_start: date,
+    window_end: date,
+) -> List[Issue]:
+    """
+    Precision-aware overlap detection for residential address history.
+
+    Overlap exists if:
+      curr_start <= prev_end
+    (i.e., two ranges claim coverage for the same day(s)).
+
+    Severity policy (tiny improvement):
+      - 1 day overlap   -> LOW
+      - 2–29 days       -> MEDIUM
+      - 30+ days        -> HIGH
+    """
+
+    def _overlap_severity(overlap_days: int) -> Literal["high", "medium", "low"]:
+        if overlap_days == 1:
+            return "low"
+        if overlap_days < 30:
+            return "medium"
+        return "high"
+
+    if not addresses:
+        return []
+
+    ranges = _build_address_ranges(addresses, window_start=window_start, window_end=window_end)
+    if len(ranges) < 2:
+        return []
+
+    issues: List[Issue] = []
+
+    prev_start, prev_end, prev_entry = ranges[0]
+
+    for curr_start, curr_end, curr_entry in ranges[1:]:
+        if curr_start <= prev_end:
+            overlap_from = curr_start
+            overlap_to = min(prev_end, curr_end)
+            overlap_days = (overlap_to - overlap_from).days + 1
+
+            issues.append(
+                Issue(
+                    severity=_overlap_severity(overlap_days),
+                    category="address_history",
+                    message=f"Overlapping residential addresses for {overlap_days} day(s): {overlap_from} to {overlap_to}.",
+                    suggested_question=(
+                        f"Two addresses appear to overlap from {overlap_from} to {overlap_to}. "
+                        "Which address was your primary residence during this period (and were you temporarily staying elsewhere)?"
+                    ),
+                )
+            )
+
+        # Advance the "active" range to whichever extends further
+        if curr_end > prev_end:
+            prev_start, prev_end, prev_entry = curr_start, curr_end, curr_entry
 
     return issues
