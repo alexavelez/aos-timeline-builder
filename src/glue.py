@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple, Literal
+from .issues import tag_issues
 
 from .models import (
     AddressEntry,
@@ -34,28 +35,6 @@ class RawSnapshot:
     section: Literal["address", "employment", "travel", "person", "case"]
     raw: Dict[str, Any]
     notes: Optional[str] = None
-
-
-def _tag_issues(issues: List[Issue], ref_id: str) -> List[Issue]:
-    """
-    Return a new list of Issues with ref_id populated when missing.
-    (Issue is frozen/immutable, so we construct new Issue objects.)
-    """
-    tagged: List[Issue] = []
-    for i in issues:
-        if getattr(i, "ref_id", None) is None:
-            tagged.append(
-                Issue(
-                    severity=i.severity,
-                    category=i.category,
-                    message=i.message,
-                    suggested_question=i.suggested_question,
-                    ref_id=ref_id,  # requires Issue(ref_id: Optional[str]) in validate.py
-                )
-            )
-        else:
-            tagged.append(i)
-    return tagged
 
 
 # ======================================================
@@ -294,7 +273,7 @@ def parse_address_entry(
 
     # If core requirements missing, return None but keep issues + snapshot (no silent omit)
     if addr is None or date_from_value is None:
-        issues = _tag_issues(issues, ref_id)
+        issues = tag_issues(issues, ref_id)
         return None, issues, snapshot
 
     try:
@@ -307,7 +286,7 @@ def parse_address_entry(
             address_type=address_type,
             notes=raw.get("notes"),
         )
-        issues = _tag_issues(issues, ref_id)
+        issues = tag_issues(issues, ref_id)
         return entry, issues, snapshot
     except Exception as e:
         issues.append(
@@ -318,7 +297,7 @@ def parse_address_entry(
                 suggested_question="Please confirm the address entry fields and dates.",
             )
         )
-        issues = _tag_issues(issues, ref_id)
+        issues = tag_issues(issues, ref_id)
         return None, issues, snapshot
 
 
@@ -404,7 +383,7 @@ def parse_employment_entry(
         issues.extend(addr_issues)
 
     if employer is None or date_from_value is None:
-        issues = _tag_issues(issues, ref_id)
+        issues = tag_issues(issues, ref_id)
         return None, issues, snapshot
 
     try:
@@ -417,7 +396,7 @@ def parse_employment_entry(
             employment_type=employment_type,
             notes=raw.get("notes"),
         )
-        issues = _tag_issues(issues, ref_id)
+        issues = tag_issues(issues, ref_id)
         return entry, issues, snapshot
     except Exception as e:
         issues.append(
@@ -428,7 +407,7 @@ def parse_employment_entry(
                 suggested_question="Please confirm employer, dates, and employment type.",
             )
         )
-        issues = _tag_issues(issues, ref_id)
+        issues = tag_issues(issues, ref_id)
         return None, issues, snapshot
 
 
@@ -490,7 +469,7 @@ def parse_travel_entry(
     issues.extend(iss)
 
     if event_type is None or dt_value is None:
-        issues = _tag_issues(issues, ref_id)
+        issues = tag_issues(issues, ref_id)
         return None, issues, snapshot
 
     try:
@@ -501,7 +480,7 @@ def parse_travel_entry(
             status_or_class=raw.get("status_or_class"),
             notes=raw.get("notes"),
         )
-        issues = _tag_issues(issues, ref_id)
+        issues = tag_issues(issues, ref_id)
         return entry, issues, snapshot
     except Exception as e:
         issues.append(
@@ -512,7 +491,7 @@ def parse_travel_entry(
                 suggested_question="Please confirm travel date and event fields.",
             )
         )
-        issues = _tag_issues(issues, ref_id)
+        issues = tag_issues(issues, ref_id)
         return None, issues, snapshot
 
 
