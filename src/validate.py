@@ -22,13 +22,13 @@ class Issue:
     message: str
     suggested_question: Optional[str] = None
 
-
+# Given a year and a month, return the last calendar day of that month, and handle December special case 
 def _last_day_of_month(y: int, m: int) -> date:
     if m == 12:
         return date(y, 12, 31)
     return date(y, m + 1, 1) - timedelta(days=1)
 
-
+# Convert “a date + precision” into the earliest date that could be true
 def _precision_range_start(dwp: DateWithPrecision) -> date:
     """Earliest possible date for the given precision."""
     if dwp.precision == "day":
@@ -38,7 +38,7 @@ def _precision_range_start(dwp: DateWithPrecision) -> date:
     # year
     return date(dwp.value.year, 1, 1)
 
-
+# The latest possible date that could be true
 def _precision_range_end(dwp: DateWithPrecision) -> date:
     """Latest possible date for the given precision."""
     if dwp.precision == "day":
@@ -48,7 +48,7 @@ def _precision_range_end(dwp: DateWithPrecision) -> date:
     # year
     return date(dwp.value.year, 12, 31)
 
-
+# use * (keyword arguments) to prevent dangerous swaping of window dates and improve readability
 def detect_address_gaps(
     addresses: List[AddressEntry],
     *,
@@ -78,8 +78,10 @@ def detect_address_gaps(
 
     ranges = []
     for entry in addresses:
+        # Uses date_from + from_precision. If precision is month/year, start becomes the earliest possible date
         start = _precision_range_start(DateWithPrecision(entry.date_from, entry.from_precision))
 
+        # We need real ranges to compare If there’s a real date_to, use it and its precision, otherwise "pretend" it ends at window_end
         effective_end = entry.date_to or window_end
         # If date_to is None ("Present"), treat it as day-precision at window_end
         end_precision: DatePrecision = entry.to_precision if entry.date_to is not None else "day"
