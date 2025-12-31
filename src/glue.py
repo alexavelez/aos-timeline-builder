@@ -342,7 +342,7 @@ def parse_employment_entry(
     employer, iss = _require_str(field_label="employer", raw_value=raw.get("employer"), issues_category="employment")
     issues.extend(iss)
 
-    date_from_value, _from_prec, _from_present, iss = require_date(
+    date_from_value, from_prec, _from_present, iss = require_date(
         field_label="employment start date (date_from)",
         raw_text=raw.get("date_from"),
         assume_us_mdy=assume_us_mdy,
@@ -351,7 +351,7 @@ def parse_employment_entry(
     )
     issues.extend(iss)
 
-    date_to_value, _to_prec, to_present, iss = require_date(
+    date_to_value, to_prec, to_present, iss = require_date(
         field_label="employment end date (date_to)",
         raw_text=raw.get("date_to"),
         assume_us_mdy=assume_us_mdy,
@@ -362,6 +362,7 @@ def parse_employment_entry(
 
     if to_present:
         date_to_value = None
+
 
     raw_type = raw.get("employment_type")
     if raw_type not in {"employed", "self_employed", "unemployed"}:
@@ -392,7 +393,9 @@ def parse_employment_entry(
             role=raw.get("role"),
             employer_address=employer_address,
             date_from=date_from_value,
+            from_precision=from_prec if from_prec in ("day", "month", "year") else "day",
             date_to=date_to_value,
+            to_precision=to_prec if to_prec in ("day", "month", "year") else "day",
             employment_type=employment_type,
             notes=raw.get("notes"),
         )

@@ -106,7 +106,11 @@ class EmploymentEntry(BaseModel):
     employer_address: Optional[PostalAddress] = None
 
     date_from: date
+    from_precision: DatePrecision = "day"
+    
     date_to: Optional[date] = None
+    to_precision: DatePrecision = "day"
+
     employment_type: EmploymentType
     notes: Optional[str] = None
 
