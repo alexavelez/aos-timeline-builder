@@ -79,12 +79,20 @@ def _build_person(
     issues.extend(trv_issues)
     snapshots.extend(trv_snaps)
 
+    addr_entries.sort(
+        key=lambda x: (
+            x.date_from,
+            {"year": 0, "month": 1, "day": 2}.get(x.from_precision, 3),
+        )
+    )
+    emp_entries.sort(key=lambda x: x.date_from)
+    trv_entries.sort(key=lambda x: x.date)
+
     return PersonData(
         addresses_lived=addr_entries,
         employment=emp_entries,
         travel_entries=trv_entries,
     )
-
 
 def load_case_from_json(
     raw: Dict[str, Any],
