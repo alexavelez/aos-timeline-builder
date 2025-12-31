@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional, List, Literal, Tuple
 
-from .models import AddressEntry, DatePrecision
+from .models import AddressEntry, EmploymentEntry, DatePrecision
 
 
 @dataclass(frozen=True)
@@ -243,5 +243,147 @@ def detect_address_overlaps(
         # Advance the "active" range to whichever extends further
         if curr_end > prev_end:
             prev_start, prev_end, prev_entry = curr_start, curr_end, curr_entry
+
+    return issues
+
+
+# ======================================================
+# Employment validation
+# ======================================================
+
+def _build_employment_ranges(
+    employment: List[EmploymentEntry],
+    *,
+    window_start: date,
+    window_end: date,
+) -> List[Tuple[date, date, EmploymentEntry]]:
+    """
+    Convert EmploymentEntry records into clamped coverage ranges within [window_start, window_end].
+
+    Each entry covers:
+      start = earliest possible date based on from_precision
+      end   = latest possible date based on to_precision
+
+    date_to=None means "Present", treated as covering through window_end with day precision.
+    """
+    ranges: List[Tuple[date, date, EmploymentEntry]] = []
+
+    for entry in employment:
+        start = _precision_range_start(DateWithPrecision(entry.date_from, entry.from_precision))
+
+        effective_end = entry.date_to or window_end
+        end_precision: DatePrecision = entry.to_precision if entry.date_to is not None else "day"
+        end = _precision_range_end(DateWithPrecision(effective_end, end_precision))
+
+        # Ignore entries fully outside window
+        if end < window_start or start > window_end:
+            continue
+
+        # Clamp to window
+        start = max(start, window_start)
+        end = min(end, window_end)
+
+        ranges.append((start, end, entry))
+
+    ranges.sort(key=lambda x: (x[0], x[1]))
+    return ranges
+
+
+def detect_employment_gaps(
+    employment: List[EmploymentEntry],
+    *,
+    window_start: date,
+    window_end: date,
+) -> List[Issue]:
+    """
+    Precision-aware gap detection for employment history.
+
+    Hybrid severity policy (same as addresses):
+      - Start-of-window gaps: HIGH (even 1 day)
+      - End-of-window gaps:   HIGH (even 1 day)
+      - Middle gaps:
+          * 1 day   -> MEDIUM
+          * >=2 days -> HIGH
+
+    Notes:
+      - This treats ANY employment entry as coverage, including 'unemployed',
+        which is usually what USCIS wants (continuity + explanation).
+    """
+
+    def _middle_gap_severity(gap_days: int) -> Literal["high", "medium"]:
+        return "medium" if gap_days == 1 else "high"
+
+    if not employment:
+        return [
+            Issue(
+                severity="high",
+                category="employment",
+                message="No employment history provided for the selected window.",
+                suggested_question="Please provide your employment history (including unemployment) for the required period.",
+            )
+        ]
+
+    raw_ranges = _build_employment_ranges(employment, window_start=window_start, window_end=window_end)
+
+    if not raw_ranges:
+        return [
+            Issue(
+                severity="high",
+                category="employment",
+                message="No employment entries overlap the required window.",
+                suggested_question="Please confirm your employment history for the required period.",
+            )
+        ]
+
+    # We only need (start, end) for gap math
+    ranges = [(start, end) for start, end, _entry in raw_ranges]
+
+    issues: List[Issue] = []
+
+    # Start gap (always HIGH)
+    first_start = ranges[0][0]
+    if first_start > window_start:
+        gap_from = window_start
+        gap_to = first_start - timedelta(days=1)
+        issues.append(
+            Issue(
+                severity="high",
+                category="employment",
+                message=f"Employment gap at the start of the window: {gap_from} to {gap_to}.",
+                suggested_question=f"What was your employment status from {gap_from} to {gap_to} (employed, self-employed, unemployed)?",
+            )
+        )
+
+    # Middle gaps (track high-water mark to handle nested/overlapping ranges)
+    current_max_end = ranges[0][1]
+    for curr_start, curr_end in ranges[1:]:
+        if curr_start > current_max_end + timedelta(days=1):
+            gap_from = current_max_end + timedelta(days=1)
+            gap_to = curr_start - timedelta(days=1)
+            gap_days = (gap_to - gap_from).days + 1
+
+            issues.append(
+                Issue(
+                    severity=_middle_gap_severity(gap_days),
+                    category="employment",
+                    message=f"Unexplained employment gap of {gap_days} day(s): {gap_from} to {gap_to}.",
+                    suggested_question=f"What was your employment status from {gap_from} to {gap_to}?",
+                )
+            )
+
+        current_max_end = max(current_max_end, curr_end)
+
+    # End gap (always HIGH)
+    if current_max_end < window_end:
+        gap_from = current_max_end + timedelta(days=1)
+        gap_to = window_end
+        issues.append(
+            Issue(
+                severity="high",
+                category="employment",
+                message=f"Employment gap at the end of the window: {gap_from} to {gap_to}.",
+                suggested_question=f"What was your employment status from {gap_from} to {gap_to}?",
+            )
+        )
 
     return issues

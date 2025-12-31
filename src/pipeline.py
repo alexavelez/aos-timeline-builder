@@ -7,6 +7,12 @@ from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from .issues import tag_issues
 from .joint_residency import detect_joint_residency_start, JointResidencyResult
+from .validate import (
+    Issue,
+    detect_address_gaps,
+    detect_address_overlaps,
+    detect_employment_gaps,   # ✅ ADD
+)
 
 
 from .glue import (
@@ -170,6 +176,13 @@ def load_case_from_json(
             window_end=window_end,
         )
     )
+    issues.extend(
+        detect_employment_gaps(
+            case.beneficiary.employment,
+            window_start=window_start,
+            window_end=window_end,
+        )
+    )
 
     # Optional: validate petitioner too
     if validate_petitioner:
@@ -183,6 +196,13 @@ def load_case_from_json(
         issues.extend(
             detect_address_overlaps(
                 case.petitioner.addresses_lived,
+                window_start=window_start,
+                window_end=window_end,
+            )
+        )
+        issues.extend(
+            detect_employment_gaps(
+                case.petitioner.employment,
                 window_start=window_start,
                 window_end=window_end,
             )

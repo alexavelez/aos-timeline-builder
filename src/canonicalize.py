@@ -164,6 +164,7 @@ def normalize_unit_type(unit_type: Optional[str]) -> Optional[str]:
 
 
 def normalize_unit_number(unit_number: Optional[str]) -> Optional[str]:
+    # accepts USCISUnitType or free text
     if unit_number is None:
         return None
     u = unit_number.strip()
