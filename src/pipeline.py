@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from .issues import tag_issues
+from .joint_residency import detect_joint_residency_start, JointResidencyResult
 
 
 from .glue import (
@@ -30,6 +31,7 @@ class BuildResult:
     snapshots: List[RawSnapshot]
     window_start: date
     window_end: date
+    joint_residency: JointResidencyResult
 
 
 def _compute_last_5_year_window(today: Optional[date] = None) -> Tuple[date, date]:
@@ -186,10 +188,18 @@ def load_case_from_json(
             )
         )
 
+    jr = detect_joint_residency_start(
+        case,
+        window_start=window_start,
+        window_end=window_end,
+    )
+    issues.extend(jr.issues)
+
     return BuildResult(
         case=case,
         issues=issues,
         snapshots=snapshots,
         window_start=window_start,
         window_end=window_end,
+        joint_residency=jr,
     )
