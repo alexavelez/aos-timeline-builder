@@ -118,6 +118,31 @@ def _top_issues(issues: List[Issue], n: int = 3) -> List[Issue]:
     priority = {"high": 0, "medium": 1, "low": 2}
     return sorted(issues, key=lambda x: priority.get(x.severity, 9))[:n]
 
+def _format_joint_residency_window(w) -> Dict[str, Any]:
+    return {
+        "start": _iso(w.start),
+        "end": _iso(w.end),
+        "match_type": w.match_type,
+        "petitioner_address": {
+            "street_name": w.petitioner_entry.address.street_name,
+            "unit_type": w.petitioner_entry.address.unit_type,
+            "unit_number": w.petitioner_entry.address.unit_number,
+            "city": w.petitioner_entry.address.city,
+            "state_province": w.petitioner_entry.address.state_province,
+            "zip_code": w.petitioner_entry.address.zip_code,
+            "country": w.petitioner_entry.address.country,
+        },
+        "beneficiary_address": {
+            "street_name": w.beneficiary_entry.address.street_name,
+            "unit_type": w.beneficiary_entry.address.unit_type,
+            "unit_number": w.beneficiary_entry.address.unit_number,
+            "city": w.beneficiary_entry.address.city,
+            "state_province": w.beneficiary_entry.address.state_province,
+            "zip_code": w.beneficiary_entry.address.zip_code,
+            "country": w.beneficiary_entry.address.country,
+        },
+    }
+
 
 def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
     """
@@ -166,6 +191,14 @@ def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
                 "employment": [_format_employment_entry(e) for e in petitioner.employment],
                 "travel": [_format_travel_entry(e) for e in petitioner.travel_entries],
             },
+        },
+        "joint_residency": {
+            "first_shared_date": _iso(result.joint_residency.first_shared_date),
+            "match_type": result.joint_residency.match_type,
+            "windows": [
+                _format_joint_residency_window(w)
+                for w in result.joint_residency.windows
+            ],
         },
         "issues": {
             "summary": {
