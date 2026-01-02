@@ -120,8 +120,11 @@ class TravelEntry(BaseModel):
     date: date
     port_or_city: Optional[str] = None
     status_or_class: Optional[str] = None
-    notes: Optional[str] = None
 
+    i94_number: Optional[str] = None      # ✅ add
+    inspected: Optional[bool] = None      # ✅ add
+
+    notes: Optional[str] = None
 
 # ======================================================
 # Person-level container
