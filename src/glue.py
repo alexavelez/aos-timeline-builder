@@ -481,8 +481,11 @@ def parse_travel_entry(
             date=dt_value,
             port_or_city=raw.get("port_or_city"),
             status_or_class=raw.get("status_or_class"),
+            i94_number=raw.get("i94_number"),      
+            inspected=raw.get("inspected"),        
             notes=raw.get("notes"),
         )
+        
         issues = tag_issues(issues, ref_id)
         return entry, issues, snapshot
     except Exception as e:

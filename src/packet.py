@@ -143,6 +143,14 @@ def _format_joint_residency_window(w) -> Dict[str, Any]:
         },
     }
 
+def _format_travel_interval(i) -> Dict[str, Any]:
+    return {
+        "exit_date": _iso(i.exit_date),
+        "entry_date": _iso(i.entry_date),
+        "days_abroad": i.days_abroad,
+        "is_brief": i.is_brief,
+    }
+
 
 def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
     """
@@ -237,6 +245,20 @@ def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
             "by_ref_id": {
                 ref_id: [_issue_to_dict(i, snap_by_id) for i in issues_for_ref]
                 for ref_id, issues_for_ref in _group_issues_by_ref(result.issues).items()
+            },
+        },
+        "travel_analysis": {
+            "beneficiary": {
+                "inferred_in_us": result.travel_beneficiary.inferred_in_us,
+                "last_event_type": result.travel_beneficiary.last_event_type,
+                "last_event_date": _iso(result.travel_beneficiary.last_event_date),
+                "intervals": [_format_travel_interval(i) for i in result.travel_beneficiary.intervals],
+            },
+            "petitioner": {
+                "inferred_in_us": result.travel_petitioner.inferred_in_us,
+                "last_event_type": result.travel_petitioner.last_event_type,
+                "last_event_date": _iso(result.travel_petitioner.last_event_date),
+                "intervals": [_format_travel_interval(i) for i in result.travel_petitioner.intervals],
             },
         },
         # Optional: include snapshots as a flat list too (useful for UI/debug)

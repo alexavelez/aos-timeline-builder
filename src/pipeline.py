@@ -29,6 +29,7 @@ from .validate import (
     detect_address_gaps,
     detect_address_overlaps,
 )
+from .travel_intelligence import analyze_travel, TravelAnalysisResult
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,8 @@ class BuildResult:
     window_start: date
     window_end: date
     joint_residency: JointResidencyResult
+    travel_beneficiary: TravelAnalysisResult
+    travel_petitioner: TravelAnalysisResult
 
 
 def _compute_last_5_year_window(today: Optional[date] = None) -> Tuple[date, date]:
@@ -247,13 +250,28 @@ def load_case_from_json(
             )
         )
 
-
     jr = detect_joint_residency_start(
         case,
         window_start=window_start,
         window_end=window_end,
     )
     issues.extend(jr.issues)
+
+    travel_ben = analyze_travel(
+        case.beneficiary.travel_entries,
+        window_start=window_start,
+        window_end=window_end,
+        employment=case.beneficiary.employment,
+    )
+    issues.extend(tag_issues(travel_ben.issues, "ben_travel_history"))
+
+    travel_pet = analyze_travel(
+        case.petitioner.travel_entries,
+        window_start=window_start,
+        window_end=window_end,
+        employment=case.petitioner.employment,
+    )
+    issues.extend(tag_issues(travel_pet.issues, "pet_travel_history"))
 
     return BuildResult(
         case=case,
@@ -262,4 +280,6 @@ def load_case_from_json(
         window_start=window_start,
         window_end=window_end,
         joint_residency=jr,
+        travel_beneficiary=travel_ben,
+        travel_petitioner=travel_pet,
     )
