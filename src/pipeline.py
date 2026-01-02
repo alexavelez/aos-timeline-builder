@@ -11,7 +11,8 @@ from .validate import (
     Issue,
     detect_address_gaps,
     detect_address_overlaps,
-    detect_employment_gaps,   # ✅ ADD
+    detect_employment_gaps,
+    detect_employment_overlaps,   # ✅ ADD
 )
 
 
@@ -163,50 +164,89 @@ def load_case_from_json(
 
     # Run validators on beneficiary by default (typical for AOS continuity questions)
     issues.extend(
-        detect_address_gaps(
-            case.beneficiary.addresses_lived,
-            window_start=window_start,
-            window_end=window_end,
+        tag_issues(
+            detect_address_gaps(
+                case.beneficiary.addresses_lived,
+                window_start=window_start,
+                window_end=window_end,
+            ),
+            "ben_address_history",
         )
     )
     issues.extend(
-        detect_address_overlaps(
-            case.beneficiary.addresses_lived,
-            window_start=window_start,
+        tag_issues(
+            detect_address_overlaps(
+                case.beneficiary.addresses_lived,
+                window_start=window_start,
             window_end=window_end,
+            ),
+            "ben_address_history",
         )
     )
     issues.extend(
-        detect_employment_gaps(
-            case.beneficiary.employment,
-            window_start=window_start,
-            window_end=window_end,
+        tag_issues(
+            detect_employment_gaps(
+                case.beneficiary.employment,
+                window_start=window_start,
+                window_end=window_end,
+            ),
+            "ben_employment_history",
+        )
+    )
+    issues.extend(
+        tag_issues(
+            detect_employment_overlaps(
+                case.beneficiary.employment,
+                window_start=window_start,
+                window_end=window_end,
+            ),
+            "ben_employment_history",
         )
     )
 
     # Optional: validate petitioner too
     if validate_petitioner:
         issues.extend(
-            detect_address_gaps(
-                case.petitioner.addresses_lived,
-                window_start=window_start,
-                window_end=window_end,
+            tag_issues(
+                detect_address_gaps(
+                    case.petitioner.addresses_lived,
+                    window_start=window_start,
+                    window_end=window_end,
+                ),
+                "pet_address_history",
             )
         )
         issues.extend(
-            detect_address_overlaps(
-                case.petitioner.addresses_lived,
-                window_start=window_start,
-                window_end=window_end,
+            tag_issues(
+                detect_address_overlaps(
+                    case.petitioner.addresses_lived,
+                    window_start=window_start,
+                    window_end=window_end,
+                ),
+                "pet_address_history",
             )
         )
         issues.extend(
-            detect_employment_gaps(
-                case.petitioner.employment,
-                window_start=window_start,
-                window_end=window_end,
+            tag_issues(
+                detect_employment_gaps(
+                    case.petitioner.employment,
+                    window_start=window_start,
+                    window_end=window_end,
+                ),
+                "pet_employment_history",
             )
         )
+        issues.extend(
+            tag_issues(
+                detect_employment_overlaps(
+                    case.petitioner.employment,
+                    window_start=window_start,
+                    window_end=window_end,
+                ),
+                "pet_employment_history",
+            )
+        )
+
 
     jr = detect_joint_residency_start(
         case,
