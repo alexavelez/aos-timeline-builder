@@ -387,3 +387,70 @@ def detect_employment_gaps(
         )
 
     return issues
+
+def detect_employment_overlaps(
+    employment: List[EmploymentEntry],
+    *,
+    window_start: date,
+    window_end: date,
+) -> List[Issue]:
+    """
+    Precision-aware overlap detection for employment history.
+
+    Overlap exists if:
+      curr_start <= prev_end
+
+    NOTE: Overlapping jobs can be normal (two part-time jobs, switching, etc.).
+    So we keep severity a bit softer than address overlaps.
+
+    Severity policy:
+      - 1 day overlap   -> LOW
+      - 2–29 days       -> MEDIUM
+      - 30+ days        -> HIGH
+    """
+
+    def _overlap_severity(overlap_days: int) -> Literal["high", "medium", "low"]:
+        if overlap_days == 1:
+            return "low"
+        if overlap_days < 30:
+            return "medium"
+        return "high"
+
+    if not employment:
+        return []
+
+    ranges = _build_employment_ranges(employment, window_start=window_start, window_end=window_end)
+    if len(ranges) < 2:
+        return []
+
+    issues: List[Issue] = []
+
+    prev_start, prev_end, prev_entry = ranges[0]
+
+    for curr_start, curr_end, curr_entry in ranges[1:]:
+        if curr_start <= prev_end:
+            overlap_from = curr_start
+            overlap_to = min(prev_end, curr_end)
+            overlap_days = (overlap_to - overlap_from).days + 1
+
+            issues.append(
+                Issue(
+                    severity=_overlap_severity(overlap_days),
+                    category="employment",
+                    message=(
+                        f"Overlapping employment entries for {overlap_days} day(s): "
+                        f"{overlap_from} to {overlap_to}."
+                    ),
+                    suggested_question=(
+                        f"Two employment entries overlap from {overlap_from} to {overlap_to}. "
+                        "Did you hold multiple jobs at the same time, or should one job’s end/start date be corrected?"
+                    ),
+                )
+            )
+
+        # Advance to whichever range extends further
+        if curr_end > prev_end:
+            prev_start, prev_end, prev_entry = curr_start, curr_end, curr_entry
+
+    return issues
+
