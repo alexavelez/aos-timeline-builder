@@ -167,6 +167,113 @@ def _map_issue_to_topic(issue: Issue) -> str:
     return "other"
 
 
+def _extract_finding_code(issue: Issue) -> Optional[str]:
+    """
+    Map Issue -> standardized finding code (stable output).
+    Uses category + message patterns. Keep conservative and test-covered.
+    """
+    cat = (issue.category or "").strip().lower()
+    msg = (issue.message or "").lower()
+
+    # ---- Travel ----
+    if cat == "travel":
+        if "missing i-94" in msg or "missing i94" in msg:
+            return "missing_i94"
+        if "missing class of admission" in msg or "missing class" in msg:
+            return "missing_class_of_admission"
+        if "missing whether you were inspected" in msg or "missing whether" in msg and "inspected" in msg:
+            return "missing_inspection_flag"
+        if "not inspected" in msg or "indicates not inspected" in msg:
+            return "not_inspected"
+        if "two entries in a row" in msg:
+            return "double_entry"
+        if "two exits in a row" in msg or "multiple exits" in msg:
+            return "double_exit"
+        if "exit recorded" in msg and "without a corresponding entry" in msg:
+            return "unmatched_exit"
+        if "entry recorded" in msg and "without a preceding exit" in msg:
+            return "unmatched_entry"
+        if "overlapping travel intervals" in msg:
+            return "overlapping_travel_intervals"
+        if "extended time outside" in msg:
+            return "long_absence_180_plus"
+        if "significant time outside" in msg:
+            return "long_absence_90_plus"
+        if "overlaps an active" in msg and "employment" not in msg:
+            # this is your travel-vs-employment overlap message
+            return "travel_overlaps_employment"
+
+        return "travel_other"
+
+    # ---- Address history ----
+    if cat == "address_history":
+        if "no residential addresses provided for the selected window" in msg:
+            return "no_address_history_provided"
+        if "no residential addresses overlap the required window" in msg:
+            return "no_address_overlap_in_window"
+        
+        if "address gap" in msg or "unexplained address gap" in msg:
+            return "address_gap"
+        if "overlapping residential addresses" in msg or "overlap" in msg and "addresses" in msg:
+            return "address_overlap"
+        if "prefers 2-letter state codes" in msg:
+            return "state_code_formatting"
+        if "missing required field" in msg and "street_name" in msg:
+            return "missing_street"
+        if "missing required field" in msg and "city" in msg:
+            return "missing_city"
+        if "missing required field" in msg and "country" in msg:
+            return "missing_country"
+
+        return "address_other"
+
+    # ---- Joint residency ----
+    if cat == "joint_residency":
+        if "no shared residential address overlap" in msg:
+            return "no_joint_residency_detected"
+        if "only via loose address matching" in msg or "only loose" in msg:
+            return "loose_joint_residency_match"
+        return "joint_residency_other"
+
+    # ---- Employment ----
+    if cat == "employment":
+        if "employment gap" in msg:
+            return "employment_gap"
+        if "overlapping employment" in msg or ("overlap" in msg and "employment" in msg):
+            return "employment_overlap"
+        if "unknown employment_type" in msg:
+            return "employment_type_unknown"
+        if "missing required field" in msg and "employer" in msg:
+            return "missing_employer"
+        return "employment_other"
+
+    # ---- Marriage / date / other ----
+    if cat == "marriage":
+        if "invalid or unrecognized date" in msg:
+            return "invalid_marriage_date"
+        return "marriage_other"
+
+    if cat == "date":
+        return "invalid_date"
+
+    return None
+
+
+def _finding_counts(issues: List[Issue]) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for i in issues:
+        code = _extract_finding_code(i)
+        if not code:
+            continue
+        counts[code] = counts.get(code, 0) + 1
+    return counts
+
+
+def _top_findings(counts: Dict[str, int], k: int = 3) -> List[str]:
+    # Sort by frequency desc, then code name asc for stability
+    return [c for c, _n in sorted(counts.items(), key=lambda x: (-x[1], x[0]))[:k]]
+
+
 def build_top_risk_summary(issues: List[Issue], n: int = 5) -> List[Dict[str, Any]]:
     """
     Cluster issues into attorney-friendly topics and rank them by risk score.
@@ -208,6 +315,11 @@ def build_top_risk_summary(issues: List[Issue], n: int = 5) -> List[Dict[str, An
         # Give 2 sample messages for context (attorney quickly sees what's inside)
         sample_messages = _dedupe_preserve_order([i.message for i in topic_issues if i.message])[:2]
 
+        finding_counts = _finding_counts(topic_issues)
+        finding_codes = sorted(finding_counts.keys())
+        key_findings = _top_findings(finding_counts, k=3)
+
+
         summary.append(
             {
                 "topic": topic,
@@ -220,6 +332,11 @@ def build_top_risk_summary(issues: List[Issue], n: int = 5) -> List[Dict[str, An
                 "ref_ids": ref_ids,
                 "suggested_questions": suggested_questions,
                 "sample_messages": sample_messages,
+                "findings": {
+                    "codes": finding_codes,
+                    "counts": finding_counts,
+                    "key": key_findings,
+                },
             }
         )
 
@@ -285,6 +402,11 @@ def add_top_risk_narratives(
     """
     Enrich each top risk item with a structured 'narrative' object and a rendered_text view.
     This keeps structured fields as the source of truth while still enabling PDF/Markdown export.
+
+    Enhancement:
+      - If the risk item includes standardized findings (item["findings"]),
+        the narrative will lead with "Key findings: ..." before sample messages.
+      - Findings are stored explicitly in the structured narrative for UI/analytics stability.
     """
     enriched: List[Dict[str, Any]] = []
 
@@ -300,6 +422,17 @@ def add_top_risk_narratives(
         sample_msgs = list(item.get("sample_messages") or [])[:max_summary_points]
         client_qs = list(item.get("suggested_questions") or [])[:max_client_questions]
 
+        # Findings (standardized) if present
+        findings = item.get("findings") or {}
+        key_findings = list(findings.get("key") or [])
+        finding_codes = list(findings.get("codes") or [])
+
+        # Build summary points: key findings first, then sample messages
+        summary_points: List[str] = []
+        if key_findings:
+            summary_points.append("Key findings: " + ", ".join(key_findings))
+        summary_points.extend(sample_msgs)
+
         evidence = EVIDENCE_TARGETS.get(topic, [])
 
         narrative_obj: Dict[str, Any] = {
@@ -308,24 +441,29 @@ def add_top_risk_narratives(
             "severity": item.get("severity"),
             "score": item.get("score"),
             "issue_count": item.get("issue_count"),
-            "summary_points": sample_msgs,
+            "summary_points": summary_points,
             "why_it_matters": why,
             "action_items": actions,
             "client_questions": client_qs,
             "evidence_targets": evidence,
             "refs": ref_ids,
+            # NEW: Findings explicitly stored (structured, stable)
+            "finding_codes": finding_codes,
+            "key_findings": key_findings,
         }
 
         # Rendered text (derived view)
         parts: List[str] = []
         parts.append(f"{title}")
         parts.append("")
-        parts.append(f"Severity: {item.get('severity')} | Score: {item.get('score')} | Issue count: {item.get('issue_count')}")
+        parts.append(
+            f"Severity: {item.get('severity')} | Score: {item.get('score')} | Issue count: {item.get('issue_count')}"
+        )
         parts.append("")
 
-        if sample_msgs:
+        if summary_points:
             parts.append("What we found:")
-            parts.append(_bullet(sample_msgs))
+            parts.append(_bullet(summary_points))
             parts.append("")
 
         if why:
@@ -517,7 +655,6 @@ def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
 
     top_risk_items = build_top_risk_summary(result.issues, n=5)
     top_risk_items = add_top_risk_narratives(top_risk_items)
-
 
     # Timelines
     beneficiary = result.case.beneficiary
