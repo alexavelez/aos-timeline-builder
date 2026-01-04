@@ -235,6 +235,129 @@ def build_top_risk_summary(issues: List[Issue], n: int = 5) -> List[Dict[str, An
     return top
 
 
+def _bullet(lines: List[str]) -> str:
+    return "\n".join([f"- {l}" for l in lines if l and str(l).strip()])
+
+
+EVIDENCE_TARGETS: Dict[str, List[str]] = {
+    "travel_admission": [
+        "I-94 record (most recent entry)",
+        "Passport biographic page",
+        "Visa page (if applicable)",
+        "Entry stamp / CBP admission record (if available)",
+    ],
+    "travel_integrity": [
+        "Passport stamps",
+        "Flight itinerary / boarding passes (if applicable)",
+        "CBP travel history record (if available)",
+    ],
+    "address_continuity": [
+        "Lease / mortgage statements",
+        "Utility bills showing name/address",
+        "Mail addressed to applicant at the residence",
+        "Driver license / state ID address history (if applicable)",
+    ],
+    "joint_residency": [
+        "Lease/mortgage showing both names",
+        "Joint utility bills",
+        "Joint bank statements",
+        "Insurance policies showing both spouses",
+        "Affidavits from friends/family (if needed)",
+    ],
+    "employment": [
+        "Pay stubs",
+        "W-2 / 1099 forms",
+        "Employment verification letter",
+        "Tax returns",
+        "Business registration / invoices (for self-employment)",
+    ],
+    "formatting": [],
+    "other": [],
+}
+
+
+def add_top_risk_narratives(
+    risk_items: List[Dict[str, Any]],
+    *,
+    max_client_questions: int = 3,
+    max_summary_points: int = 3,
+) -> List[Dict[str, Any]]:
+    """
+    Enrich each top risk item with a structured 'narrative' object and a rendered_text view.
+    This keeps structured fields as the source of truth while still enabling PDF/Markdown export.
+    """
+    enriched: List[Dict[str, Any]] = []
+
+    for item in risk_items:
+        topic = item.get("topic", "other")
+        title = item.get("title", topic)
+
+        why = item.get("why_it_matters") or ""
+        actions = list(item.get("action_items") or [])
+        ref_ids = list(item.get("ref_ids") or [])
+
+        # Derived from issues
+        sample_msgs = list(item.get("sample_messages") or [])[:max_summary_points]
+        client_qs = list(item.get("suggested_questions") or [])[:max_client_questions]
+
+        evidence = EVIDENCE_TARGETS.get(topic, [])
+
+        narrative_obj: Dict[str, Any] = {
+            "title": title,
+            "topic": topic,
+            "severity": item.get("severity"),
+            "score": item.get("score"),
+            "issue_count": item.get("issue_count"),
+            "summary_points": sample_msgs,
+            "why_it_matters": why,
+            "action_items": actions,
+            "client_questions": client_qs,
+            "evidence_targets": evidence,
+            "refs": ref_ids,
+        }
+
+        # Rendered text (derived view)
+        parts: List[str] = []
+        parts.append(f"{title}")
+        parts.append("")
+        parts.append(f"Severity: {item.get('severity')} | Score: {item.get('score')} | Issue count: {item.get('issue_count')}")
+        parts.append("")
+
+        if sample_msgs:
+            parts.append("What we found:")
+            parts.append(_bullet(sample_msgs))
+            parts.append("")
+
+        if why:
+            parts.append("Why it matters:")
+            parts.append(why.strip())
+            parts.append("")
+
+        if actions:
+            parts.append("Recommended actions:")
+            parts.append(_bullet(actions))
+            parts.append("")
+
+        if client_qs:
+            parts.append("Client questions:")
+            parts.append(_bullet(client_qs))
+            parts.append("")
+
+        if evidence:
+            parts.append("Evidence/documents to consider:")
+            parts.append(_bullet(evidence))
+            parts.append("")
+
+        if ref_ids:
+            parts.append(f"Refs: {', '.join(ref_ids)}")
+
+        narrative_obj["rendered_text"] = "\n".join(parts).strip()
+
+        enriched.append({**item, "narrative": narrative_obj})
+
+    return enriched
+
+
 def _iso(d: Optional[date]) -> Optional[str]:
     return d.isoformat() if d else None
 
@@ -392,6 +515,10 @@ def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
     grouped_by_cat = _group_issues_by_category(result.issues)
     top = _top_issues(result.issues, n=3)
 
+    top_risk_items = build_top_risk_summary(result.issues, n=5)
+    top_risk_items = add_top_risk_narratives(top_risk_items)
+
+
     # Timelines
     beneficiary = result.case.beneficiary
     petitioner = result.case.petitioner
@@ -430,7 +557,7 @@ def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
             ],
         },
         "top_risks": {
-            "items": build_top_risk_summary(result.issues, n=5),
+            "items": top_risk_items,
         },
         "issues": {
             "summary": {
