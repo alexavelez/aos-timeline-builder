@@ -13,6 +13,227 @@ from .glue import RawSnapshot
 
 Severity = Literal["high", "medium", "low"]
 
+# ======================================================
+# Top Risk Summary (attorney-facing)
+# ======================================================
+
+RISK_WEIGHTS = {
+    "travel_admission": 100,  # Missing I-94 / inspected / class of admission
+    "travel_integrity": 90,   # Overlaps, missing pairings, contradictions
+    "address_continuity": 70, # Gaps/overlaps in residence history
+    "joint_residency": 50,    # Shared residence evidence issues
+    "employment": 40,         # Employment continuity issues
+    "formatting": 10,         # State code warnings, minor formatting
+    "other": 20,              # fallback
+}
+
+SEVERITY_BUMP = {
+    "high": 30,
+    "medium": 15,
+    "low": 5,
+}
+
+TOPIC_METADATA: Dict[str, Dict[str, Any]] = {
+    "travel_admission": {
+        "title": "Admission/Inspection Risk",
+        "desc": (
+            "AOS generally requires the applicant to have been inspected and admitted or paroled. "
+            "Missing last-entry details (inspection, class of admission, I-94) can trigger RFEs or intensive questioning."
+        ),
+        "actions": [
+            "Obtain the I-94 record for the most recent entry (electronic or paper).",
+            "Confirm class of admission/status for the most recent entry.",
+            "Confirm whether the applicant was inspected/admitted/paroled on the most recent entry.",
+        ],
+    },
+    "travel_integrity": {
+        "title": "Travel History Contradictions",
+        "desc": (
+            "Overlapping trips or unmatched entries/exits suggest the travel record may be incomplete or inconsistent. "
+            "This can lead to RFEs or interview questions about presence in the U.S."
+        ),
+        "actions": [
+            "Correct any overlapping travel dates (trips cannot overlap).",
+            "Provide missing entry/exit dates so travel events are properly paired.",
+            "Confirm whether the applicant is currently in the U.S. based on the most recent travel event.",
+        ],
+    },
+    "address_continuity": {
+        "title": "Gaps in U.S. Residence History",
+        "desc": (
+            "USCIS generally expects a complete residence history for the required period. "
+            "Unexplained gaps or overlaps can trigger RFEs to clarify where the applicant lived."
+        ),
+        "actions": [
+            "Fill any missing address periods with an address and dates.",
+            "Clarify overlaps (primary residence vs temporary stay).",
+            "Confirm start/end-of-window coverage for the required period.",
+        ],
+    },
+    "joint_residency": {
+        "title": "Shared Residence Evidence Needs Clarification",
+        "desc": (
+            "If no shared residence is detected (or only a loose match), USCIS may ask for clarification and additional evidence "
+            "about the couple’s living arrangement."
+        ),
+        "actions": [
+            "Confirm whether/when the couple lived together and provide the shared address and dates.",
+            "Confirm unit/apartment and ZIP details if the match is only loose.",
+            "Prepare a brief explanation if living separately for any period.",
+        ],
+    },
+    "employment": {
+        "title": "Employment Timeline Continuity",
+        "desc": (
+            "Employment gaps/overlaps can trigger follow-up questions and may require explanation or corrections on the forms."
+        ),
+        "actions": [
+            "Fill missing employment periods (including unemployment) with dates.",
+            "Clarify overlaps (multiple jobs vs incorrect dates).",
+            "Confirm self-employment details (business name, dates, location).",
+        ],
+    },
+    "formatting": {
+        "title": "Formatting / Data Normalization",
+        "desc": (
+            "Minor formatting issues (e.g., state codes) are unlikely to be fatal but are worth correcting to avoid confusion."
+        ),
+        "actions": [
+            "Normalize U.S. state to 2-letter code (e.g., NC).",
+            "Confirm ZIP and unit formatting where applicable.",
+        ],
+    },
+    "other": {
+        "title": "Other Review Items",
+        "desc": "Additional items that may require attorney review or clarification.",
+        "actions": [],
+    },
+}
+
+
+def _dedupe_preserve_order(values: List[str]) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for v in values:
+        if v in seen:
+            continue
+        seen.add(v)
+        out.append(v)
+    return out
+
+
+def _cluster_max_severity(issues: List[Issue]) -> Severity:
+    priority = {"high": 3, "medium": 2, "low": 1}
+    return max(issues, key=lambda i: priority.get(i.severity, 0)).severity  # type: ignore
+
+
+def _map_issue_to_topic(issue: Issue) -> str:
+    """
+    Stable, conservative topic mapper.
+
+    Prefer issue.category (stable). Use message keywords only to split travel into:
+      - travel_admission vs travel_integrity
+    """
+    cat = (issue.category or "").strip().lower()
+    msg = (issue.message or "").lower()
+
+    if cat == "travel":
+        # Admission / inspection completeness
+        if (
+            "last entry" in msg
+            or "i-94" in msg
+            or "i94" in msg
+            or "class of admission" in msg
+            or "inspected" in msg
+            or "admitted" in msg
+            or "paroled" in msg
+        ):
+            return "travel_admission"
+        return "travel_integrity"
+
+    if cat == "address_history":
+        # Split formatting-ish address warnings into formatting
+        if "2-letter state" in msg or "state codes" in msg or "prefers 2-letter" in msg:
+            return "formatting"
+        return "address_continuity"
+
+    if cat == "joint_residency":
+        return "joint_residency"
+
+    if cat == "employment":
+        return "employment"
+
+    # Marriage/date etc. can be "other" for now
+    return "other"
+
+
+def build_top_risk_summary(issues: List[Issue], n: int = 5) -> List[Dict[str, Any]]:
+    """
+    Cluster issues into attorney-friendly topics and rank them by risk score.
+    Returns top N clusters.
+
+    Scoring:
+      score = base_topic_weight + severity_bump(max_severity) + small_count_factor
+    """
+    if not issues:
+        return []
+
+    clusters: Dict[str, List[Issue]] = {}
+    for issue in issues:
+        topic = _map_issue_to_topic(issue)
+        clusters.setdefault(topic, []).append(issue)
+
+    summary: List[Dict[str, Any]] = []
+
+    for topic, topic_issues in clusters.items():
+        max_sev = _cluster_max_severity(topic_issues)
+        base_weight = RISK_WEIGHTS.get(topic, RISK_WEIGHTS["other"])
+        bump = SEVERITY_BUMP.get(max_sev, 0)
+
+        # Count factor: rewards many related issues but caps the effect
+        count_factor = min(len(topic_issues) * 2, 20)
+
+        total_score = base_weight + bump + count_factor
+
+        meta = TOPIC_METADATA.get(topic, TOPIC_METADATA["other"])
+
+        ref_ids = _dedupe_preserve_order(
+            sorted([i.ref_id for i in topic_issues if i.ref_id])
+        )
+
+        suggested_questions = _dedupe_preserve_order(
+            [q for q in (i.suggested_question for i in topic_issues) if q and q.strip()]
+        )
+
+        # Give 2 sample messages for context (attorney quickly sees what's inside)
+        sample_messages = _dedupe_preserve_order([i.message for i in topic_issues if i.message])[:2]
+
+        summary.append(
+            {
+                "topic": topic,
+                "title": meta.get("title", topic),
+                "why_it_matters": meta.get("desc", ""),
+                "action_items": meta.get("actions", []),
+                "severity": max_sev,
+                "score": total_score,
+                "issue_count": len(topic_issues),
+                "ref_ids": ref_ids,
+                "suggested_questions": suggested_questions,
+                "sample_messages": sample_messages,
+            }
+        )
+
+    # Rank by score (desc), then by severity (desc), then stable topic name
+    sev_rank = {"high": 3, "medium": 2, "low": 1}
+    summary.sort(key=lambda x: (x["score"], sev_rank.get(x["severity"], 0), x["topic"]), reverse=True)
+
+    # Add rank numbers
+    top = summary[:n]
+    for idx, item in enumerate(top, start=1):
+        item["rank"] = idx
+
+    return top
+
 
 def _iso(d: Optional[date]) -> Optional[str]:
     return d.isoformat() if d else None
@@ -207,6 +428,9 @@ def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
                 _format_joint_residency_window(w)
                 for w in result.joint_residency.windows
             ],
+        },
+        "top_risks": {
+            "items": build_top_risk_summary(result.issues, n=5),
         },
         "issues": {
             "summary": {
