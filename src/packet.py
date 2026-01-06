@@ -212,10 +212,18 @@ def _extract_finding_code(issue: Issue) -> Optional[str]:
         if "no residential addresses overlap the required window" in msg:
             return "no_address_overlap_in_window"
         
+        # Window coverage-specific gaps
+        if "address gap at the start of the window" in msg:
+            return "address_window_start_missing"
+        if "address gap at the end of the window" in msg:
+            return "address_window_end_missing"
+
+        # Generic gaps/overlaps
         if "address gap" in msg or "unexplained address gap" in msg:
             return "address_gap"
-        if "overlapping residential addresses" in msg or "overlap" in msg and "addresses" in msg:
+        if "overlapping residential addresses" in msg or ("overlap" in msg and "addresses" in msg):
             return "address_overlap"
+        
         if "prefers 2-letter state codes" in msg:
             return "state_code_formatting"
         if "missing required field" in msg and "street_name" in msg:
