@@ -245,14 +245,25 @@ def _extract_finding_code(issue: Issue) -> Optional[str]:
 
     # ---- Employment ----
     if cat == "employment":
-        if "employment gap" in msg:
+        if "no employment history provided for the selected window" in msg:
+            return "no_employment_history_provided"
+        if "no employment entries overlap the required window" in msg:
+            return "no_employment_overlap_in_window"
+
+        # NEW: window coverage gaps
+        if "employment gap at the start of the window" in msg:
+            return "employment_window_start_missing"
+        if "employment gap at the end of the window" in msg:
+            return "employment_window_end_missing"
+
+        # Generic gaps
+        if "unexplained employment gap" in msg or ("employment gap" in msg):
             return "employment_gap"
+
+        # Overlaps (if you have that validator)
         if "overlapping employment" in msg or ("overlap" in msg and "employment" in msg):
             return "employment_overlap"
-        if "unknown employment_type" in msg:
-            return "employment_type_unknown"
-        if "missing required field" in msg and "employer" in msg:
-            return "missing_employer"
+
         return "employment_other"
 
     # ---- Marriage / date / other ----
