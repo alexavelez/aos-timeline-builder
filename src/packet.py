@@ -138,7 +138,8 @@ def _map_issue_to_topic(issue: Issue) -> str:
     msg = (issue.message or "").lower()
 
     if cat == "travel":
-        # Admission / inspection completeness
+        # Travel admission / inspection completeness (AOS-critical)
+        # IMPORTANT: return TOPIC names here, not finding codes.
         if (
             "last entry" in msg
             or "i-94" in msg
@@ -149,6 +150,8 @@ def _map_issue_to_topic(issue: Issue) -> str:
             or "paroled" in msg
         ):
             return "travel_admission"
+
+        # Everything else travel-related falls under integrity/completeness
         return "travel_integrity"
 
     if cat == "address_history":
@@ -177,14 +180,29 @@ def _extract_finding_code(issue: Issue) -> Optional[str]:
 
     # ---- Travel ----
     if cat == "travel":
+            # ---- Last-entry specific (AOS-critical): MUST come BEFORE generic rules ----
+        if "last entry" in msg and ("missing i-94" in msg or "missing i94" in msg):
+            return "missing_i94_last_entry"
+        if "last entry" in msg and ("missing class of admission" in msg or "missing class" in msg):
+            return "missing_class_of_admission_last_entry"
+        if "last entry" in msg and (
+            ("missing whether you were inspected" in msg) or (("missing whether" in msg) and ("inspected" in msg))
+        ):
+            return "missing_inspection_flag_last_entry"
+        if "last entry" in msg and ("not inspected" in msg or "indicates not inspected" in msg):
+            return "not_inspected_last_entry"
+
+        # ---- Generic admission fields (non-last-entry messages) ----
         if "missing i-94" in msg or "missing i94" in msg:
             return "missing_i94"
         if "missing class of admission" in msg or "missing class" in msg:
             return "missing_class_of_admission"
-        if "missing whether you were inspected" in msg or "missing whether" in msg and "inspected" in msg:
+        if ("missing whether you were inspected" in msg) or (("missing whether" in msg) and ("inspected" in msg)):
             return "missing_inspection_flag"
         if "not inspected" in msg or "indicates not inspected" in msg:
             return "not_inspected"
+
+        # ---- Integrity / pairing ----
         if "two entries in a row" in msg:
             return "double_entry"
         if "two exits in a row" in msg or "multiple exits" in msg:
@@ -195,12 +213,15 @@ def _extract_finding_code(issue: Issue) -> Optional[str]:
             return "unmatched_entry"
         if "overlapping travel intervals" in msg:
             return "overlapping_travel_intervals"
+
+        # ---- Absence duration ----
         if "extended time outside" in msg:
             return "long_absence_180_plus"
         if "significant time outside" in msg:
-            return "long_absence_90_plus"
-        if "overlaps an active" in msg and "employment" not in msg:
-            # this is your travel-vs-employment overlap message
+            return "long_absence_90_179"
+
+        # ---- Travel vs employment overlap (note: your original condition looked inverted) ----
+        if "overlaps an active" in msg and "employment" in msg:
             return "travel_overlaps_employment"
 
         return "travel_other"
@@ -250,7 +271,7 @@ def _extract_finding_code(issue: Issue) -> Optional[str]:
         if "no employment entries overlap the required window" in msg:
             return "no_employment_overlap_in_window"
 
-        # NEW: window coverage gaps
+        # Window coverage gaps
         if "employment gap at the start of the window" in msg:
             return "employment_window_start_missing"
         if "employment gap at the end of the window" in msg:
