@@ -59,6 +59,17 @@ def main():
     result = load_case_from_json(raw, today=today)
     packet = build_attorney_review_packet(result)
 
+    print("\nTOP RISKS:")
+    for item in packet["top_risks"]["items"]:
+        print("- Topic:", item["topic"])
+        print("  Findings:", item.get("findings", {}).get("codes"))
+        print("  Severity:", item.get("severity"))
+        print("  Score:", item.get("score"))
+        print("")
+        print(item["narrative"]["rendered_text"])
+        print("-" * 40)
+
+
     # Pretty print a short version
     print(json.dumps(packet["issues"]["counts"], indent=2))
     print("\nSample HIGH issue (if any):")

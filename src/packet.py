@@ -19,7 +19,7 @@ Severity = Literal["high", "medium", "low"]
 
 RISK_WEIGHTS = {
     "travel_admission": 100,  # Missing I-94 / inspected / class of admission
-    "travel_integrity": 90,   # Overlaps, missing pairings, contradictions
+    "travel_integrity": 35,   # Overlaps, missing pairings, contradictions
     "address_continuity": 70, # Gaps/overlaps in residence history
     "joint_residency": 50,    # Shared residence evidence issues
     "employment": 40,         # Employment continuity issues
@@ -223,6 +223,9 @@ def _extract_finding_code(issue: Issue) -> Optional[str]:
         # ---- Travel vs employment overlap (note: your original condition looked inverted) ----
         if "overlaps an active" in msg and "employment" in msg:
             return "travel_overlaps_employment"
+        
+        if "first in-window travel event is an entry" in msg:
+            return "baseline_entry_without_exit"
 
         return "travel_other"
 
