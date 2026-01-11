@@ -677,6 +677,223 @@ def _format_travel_interval(i) -> Dict[str, Any]:
     }
 
 
+# ======================================================
+# Client Clarification Pack (copy/paste ready)
+# ======================================================
+
+import re
+
+
+_PRIORITY_RANK = {"P0": 0, "P1": 1, "P2": 2}
+
+
+def _who_from_ref_id(ref_id: Optional[str]) -> Optional[str]:
+    if not ref_id:
+        return None
+    if ref_id.startswith('ben_'):
+        return 'beneficiary'
+    if ref_id.startswith('pet_'):
+        return 'petitioner'
+    if ref_id.startswith('case_'):
+        return 'case'
+    return None
+
+
+def _client_topic_from_issue(issue: Issue) -> str:
+    cat = (issue.category or '').strip().lower()
+    if cat == 'address_history':
+        return 'address'
+    if cat == 'employment':
+        return 'employment'
+    if cat == 'travel':
+        return 'travel'
+    if cat == 'joint_residency':
+        return 'joint_residency'
+    if cat == 'marriage':
+        return 'marriage'
+    return 'other'
+
+
+def _extract_iso_dates(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Extract up to two ISO dates (YYYY-MM-DD) from a string."""
+    if not text:
+        return (None, None)
+    dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", text)
+    if not dates:
+        return (None, None)
+    if len(dates) == 1:
+        return (dates[0], dates[0])
+    return (dates[0], dates[1])
+
+
+def _priority_for_issue(issue: Issue) -> str:
+    """Return P0/P1/P2 priority for client-facing clarification."""
+    sev = (issue.severity or 'low').lower()
+    code = _extract_finding_code(issue) or ''
+
+    # Always P0 if high severity
+    if sev == 'high':
+        return 'P0'
+
+    # Specific medium items we still want in the first client email
+    P0_CODES = {
+        'missing_i94_last_entry',
+        'missing_class_of_admission_last_entry',
+        'missing_inspection_flag_last_entry',
+        'not_inspected_last_entry',
+        'address_window_start_missing',
+        'address_window_end_missing',
+        'employment_window_start_missing',
+        'employment_window_end_missing',
+        'no_address_history_provided',
+        'no_address_overlap_in_window',
+        'no_employment_history_provided',
+        'no_employment_overlap_in_window',
+    }
+    if code in P0_CODES:
+        return 'P0'
+
+    if sev == 'medium':
+        return 'P1'
+
+    return 'P2'
+
+
+def build_client_clarification_pack(issues: List[Issue]) -> Dict[str, Any]:
+    """Build a prioritized, deduplicated set of copy/paste-ready client questions."""
+    # Only issues with actionable questions
+    actionable = [i for i in issues if i.suggested_question and i.suggested_question.strip()]
+    if not actionable:
+        return {
+            'summary': {
+                'total_questions': 0,
+                'by_topic': {},
+                'by_priority': {'P0': 0, 'P1': 0, 'P2': 0},
+            },
+            'email': {
+                'subject': 'A few final questions to complete your immigration forms',
+                'body': 'No additional questions at this time.',
+            },
+            'questions': [],
+        }
+
+    # Deduplicate while preserving "best" (highest priority) version
+    dedup: Dict[Tuple, Dict[str, Any]] = {}
+    order: List[Tuple] = []
+
+    for idx, issue in enumerate(actionable):
+        who = _who_from_ref_id(issue.ref_id) or 'unknown'
+        topic = _client_topic_from_issue(issue)
+        prompt = (issue.suggested_question or '').strip()
+        d1, d2 = _extract_iso_dates(prompt + ' ' + (issue.message or ''))
+        key = (who, topic, d1, d2, prompt.lower())
+
+        item = {
+            'question_id': f"q_{idx}",
+            'priority': _priority_for_issue(issue),
+            'topic': topic,
+            'who': who,
+            'date_range': {'from': d1, 'to': d2} if d1 else None,
+            'prompt': prompt,
+            'source_refs': [issue.ref_id] if issue.ref_id else [],
+            'derived_from': {
+                'severity': issue.severity,
+                'category': issue.category,
+                'message': issue.message,
+                'finding_code': _extract_finding_code(issue),
+            },
+        }
+
+        if key not in dedup:
+            dedup[key] = item
+            order.append(key)
+        else:
+            # Keep the higher-priority one
+            existing = dedup[key]
+            if _PRIORITY_RANK[item['priority']] < _PRIORITY_RANK[existing['priority']]:
+                dedup[key] = item
+            # Merge refs
+            existing_refs = set(existing.get('source_refs', []))
+            for r in item.get('source_refs', []):
+                existing_refs.add(r)
+            existing['source_refs'] = sorted(existing_refs)
+
+    questions = [dedup[k] for k in order]
+
+    # Sort for output: P0 then P1 then P2, stable within each group
+    questions = sorted(questions, key=lambda q: (_PRIORITY_RANK.get(q['priority'], 9), ))
+
+    # Summary counts
+    by_topic: Dict[str, int] = {}
+    by_priority = {'P0': 0, 'P1': 0, 'P2': 0}
+    for q in questions:
+        by_topic[q['topic']] = by_topic.get(q['topic'], 0) + 1
+        by_priority[q['priority']] += 1
+
+    # Build email body (copy/paste)
+    lines: List[str] = []
+    lines.append('Hi,')
+    lines.append('')
+    lines.append('We’re preparing your forms and need a few final details so we can complete everything in one pass.')
+    lines.append('Please reply with the information requested below (you can answer directly in this email).')
+    lines.append('')
+
+    # Group by topic then who
+    def _topic_title(t: str) -> str:
+        return {
+            'address': 'Address history',
+            'employment': 'Employment history',
+            'travel': 'Travel history',
+            'joint_residency': 'Living together (marriage)',
+            'marriage': 'Marriage details',
+            'other': 'Other',
+        }.get(t, t)
+
+    grouped: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    for q in questions:
+        grouped.setdefault((q['topic'], q['who']), []).append(q)
+
+    # Topic order for nicer emails
+    topic_order = ['address', 'employment', 'travel', 'joint_residency', 'marriage', 'other']
+
+    for topic in topic_order:
+        subkeys = [k for k in grouped.keys() if k[0] == topic]
+        if not subkeys:
+            continue
+        lines.append(_topic_title(topic) + ':')
+        for _t, who in sorted(subkeys, key=lambda x: x[1]):
+            qs = grouped[(_t, who)]
+            if who != 'unknown' and who != 'case':
+                lines.append(f"- {who.capitalize()}:")
+                for q in qs:
+                    prefix = '  *'
+                    if q['priority'] == 'P0':
+                        prefix = '  * [REQUIRED]'
+                    lines.append(f"{prefix} {q['prompt']}")
+            else:
+                for q in qs:
+                    prefix = '*'
+                    if q['priority'] == 'P0':
+                        prefix = '* [REQUIRED]'
+                    lines.append(f"{prefix} {q['prompt']}")
+        lines.append('')
+
+    lines.append('Thank you!')
+
+    return {
+        'summary': {
+            'total_questions': len(questions),
+            'by_topic': by_topic,
+            'by_priority': by_priority,
+        },
+        'email': {
+            'subject': 'A few final questions to complete your immigration forms',
+            'body': "\n".join(lines).strip(),
+        },
+        'questions': questions,
+    }
+
+
 def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
     """
     Build a machine-friendly "attorney review packet" dict.
@@ -778,6 +995,7 @@ def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
                 for ref_id, issues_for_ref in _group_issues_by_ref(result.issues).items()
             },
         },
+        "client_clarification_pack": build_client_clarification_pack(result.issues),
         "travel_analysis": {
             "beneficiary": {
                 "inferred_in_us": result.travel_beneficiary.inferred_in_us,
