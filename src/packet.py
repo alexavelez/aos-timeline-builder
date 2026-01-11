@@ -14,6 +14,14 @@ from .glue import RawSnapshot
 Severity = Literal["high", "medium", "low"]
 
 # ======================================================
+# Packet schema stabilization (productization)
+# ======================================================
+
+# Increment when the *output packet structure* changes in a backward-incompatible way.
+# Keep this stable once clients depend on it.
+PACKET_SCHEMA_VERSION = "0.3.0"
+
+# ======================================================
 # Top Risk Summary (attorney-facing)
 # ======================================================
 
@@ -109,6 +117,75 @@ TOPIC_METADATA: Dict[str, Dict[str, Any]] = {
         "actions": [],
     },
 }
+
+# Freeze topic names for product stability.
+ALLOWED_TOPIC_NAMES: Tuple[str, ...] = tuple(sorted(TOPIC_METADATA.keys()))
+
+
+# Freeze finding codes for product stability. These are used downstream for:
+# - clustering and ranking
+# - analytics
+# - UI filters
+# - templated narratives
+FINDING_CODE_REGISTRY: Tuple[str, ...] = (
+    # Travel: last entry / admission fields
+    "missing_i94_last_entry",
+    "missing_class_of_admission_last_entry",
+    "missing_inspection_flag_last_entry",
+    "not_inspected_last_entry",
+
+    # Travel: generic admission fields
+    "missing_i94",
+    "missing_class_of_admission",
+    "missing_inspection_flag",
+    "not_inspected",
+
+    # Travel: integrity / pairing
+    "double_entry",
+    "double_exit",
+    "unmatched_exit",
+    "unmatched_entry",
+    "overlapping_travel_intervals",
+    "travel_overlaps_employment",
+    "baseline_entry_without_exit",
+    "travel_other",
+
+    # Travel: absence duration
+    "long_absence_180_plus",
+    "long_absence_90_179",
+
+    # Address history
+    "no_address_history_provided",
+    "no_address_overlap_in_window",
+    "address_window_start_missing",
+    "address_window_end_missing",
+    "address_gap",
+    "address_overlap",
+    "state_code_formatting",
+    "missing_street",
+    "missing_city",
+    "missing_country",
+    "address_other",
+
+    # Employment
+    "no_employment_history_provided",
+    "no_employment_overlap_in_window",
+    "employment_window_start_missing",
+    "employment_window_end_missing",
+    "employment_gap",
+    "employment_overlap",
+    "employment_other",
+
+    # Joint residency
+    "no_joint_residency_detected",
+    "loose_joint_residency_match",
+    "joint_residency_other",
+
+    # Marriage / date
+    "invalid_marriage_date",
+    "marriage_other",
+    "invalid_date",
+)
 
 
 def _dedupe_preserve_order(values: List[str]) -> List[str]:
@@ -922,6 +999,7 @@ def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
 
     packet: Dict[str, Any] = {
         "meta": {
+            "schema_version": PACKET_SCHEMA_VERSION,
             "window_start": _iso(result.window_start),
             "window_end": _iso(result.window_end),
         },
