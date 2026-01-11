@@ -3,6 +3,7 @@ from datetime import date
 
 from src.packet import (
     ALLOWED_TOPIC_NAMES,
+    ALLOWED_RESOLUTION_TYPES,
     FINDING_CODE_REGISTRY,
     PACKET_SCHEMA_VERSION,
     build_attorney_review_packet,
@@ -60,6 +61,9 @@ def test_packet_includes_schema_version_and_uses_frozen_enums():
     # Topics must come from the frozen set.
     for item in packet.get("top_risks", {}).get("items", []):
         assert item["topic"] in ALLOWED_TOPIC_NAMES
+
+        # Resolution types must come from the frozen set.
+        assert item.get("resolution_type") in ALLOWED_RESOLUTION_TYPES
 
         # Finding codes must come from the frozen registry.
         codes = item.get("findings", {}).get("codes", []) or []

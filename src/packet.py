@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import date
+import re
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from .pipeline import BuildResult
@@ -12,6 +13,7 @@ from .glue import RawSnapshot
 
 
 Severity = Literal["high", "medium", "low"]
+ResolutionType = Literal["must_fix", "explain", "prepare_evidence"]
 
 # ======================================================
 # Packet schema stabilization (productization)
@@ -20,6 +22,13 @@ Severity = Literal["high", "medium", "low"]
 # Increment when the *output packet structure* changes in a backward-incompatible way.
 # Keep this stable once clients depend on it.
 PACKET_SCHEMA_VERSION = "0.3.0"
+
+# Freeze resolution types for product stability.
+ALLOWED_RESOLUTION_TYPES: Tuple[ResolutionType, ...] = (
+    "must_fix",
+    "explain",
+    "prepare_evidence",
+)
 
 # ======================================================
 # Top Risk Summary (attorney-facing)
@@ -394,6 +403,106 @@ def _top_findings(counts: Dict[str, int], k: int = 3) -> List[str]:
     return [c for c, _n in sorted(counts.items(), key=lambda x: (-x[1], x[0]))[:k]]
 
 
+def _resolution_type_for_cluster(
+    *,
+    topic: str,
+    max_severity: Severity,
+    finding_codes: List[str],
+) -> ResolutionType:
+    """Recommend what the attorney/paralegal should do with this risk cluster.
+
+    - must_fix: missing/contradictory data that needs correction or completion
+    - explain: facts may be accurate but should be explained in narrative or at interview
+    - prepare_evidence: facts may be accurate but typically require evidence planning
+
+    Conservative policy: high severity defaults to must_fix unless the finding implies
+    a legal/factual constraint that can't be "fixed" (e.g., not inspected).
+    """
+
+    codes = set(finding_codes or [])
+
+    # Findings that imply a legal/factual constraint (cannot be "fixed" by editing data).
+    evidence_driven_codes = {
+        "not_inspected_last_entry",
+        "not_inspected",
+    }
+
+    # Findings that are almost always data-completion items.
+    must_fix_codes = {
+        # Address window coverage / missing history
+        "no_address_history_provided",
+        "no_address_overlap_in_window",
+        "address_window_start_missing",
+        "address_window_end_missing",
+        "address_gap",
+        "address_overlap",
+
+        # Employment window coverage / missing history
+        "no_employment_history_provided",
+        "no_employment_overlap_in_window",
+        "employment_window_start_missing",
+        "employment_window_end_missing",
+        "employment_gap",
+        "employment_overlap",
+
+        # Travel integrity
+        "double_entry",
+        "double_exit",
+        "unmatched_exit",
+        "unmatched_entry",
+        "overlapping_travel_intervals",
+        "travel_overlaps_employment",
+
+        # Joint residency needs confirmation to resolve
+        "loose_joint_residency_match",
+    }
+
+    # Travel admission fields: typically must collect data/evidence.
+    admission_missing_codes = {
+        "missing_i94_last_entry",
+        "missing_class_of_admission_last_entry",
+        "missing_inspection_flag_last_entry",
+        "missing_i94",
+        "missing_class_of_admission",
+        "missing_inspection_flag",
+    }
+
+    # Topic-based defaults
+    if codes & evidence_driven_codes:
+        return "prepare_evidence"
+
+    if topic in {"address_continuity", "employment"}:
+        # These are primarily completeness/correction tasks.
+        return "must_fix" if max_severity in {"high", "medium"} else "explain"
+
+    if topic == "travel_admission":
+        if codes & admission_missing_codes:
+            return "must_fix"
+        return "prepare_evidence"
+
+    if topic == "travel_integrity":
+        # Baseline entry without exit is often outside-window and may not be fixable.
+        if codes == {"baseline_entry_without_exit"}:
+            return "explain"
+        if codes & must_fix_codes:
+            return "must_fix"
+        return "explain"
+
+    if topic == "joint_residency":
+        # If no joint residency is detected, often requires evidence planning or explanation.
+        if "no_joint_residency_detected" in codes:
+            return "prepare_evidence"
+        if "loose_joint_residency_match" in codes:
+            return "must_fix"
+        return "explain"
+
+    if topic == "formatting":
+        return "must_fix"
+
+    # Fallback: high/medium -> must_fix, low -> explain
+    return "must_fix" if max_severity in {"high", "medium"} else "explain"
+
+
 def build_top_risk_summary(issues: List[Issue], n: int = 5) -> List[Dict[str, Any]]:
     """
     Cluster issues into attorney-friendly topics and rank them by risk score.
@@ -439,6 +548,12 @@ def build_top_risk_summary(issues: List[Issue], n: int = 5) -> List[Dict[str, An
         finding_codes = sorted(finding_counts.keys())
         key_findings = _top_findings(finding_counts, k=3)
 
+        resolution_type = _resolution_type_for_cluster(
+            topic=topic,
+            max_severity=max_sev,
+            finding_codes=finding_codes,
+        )
+
 
         summary.append(
             {
@@ -446,6 +561,7 @@ def build_top_risk_summary(issues: List[Issue], n: int = 5) -> List[Dict[str, An
                 "title": meta.get("title", topic),
                 "why_it_matters": meta.get("desc", ""),
                 "action_items": meta.get("actions", []),
+                "resolution_type": resolution_type,
                 "severity": max_sev,
                 "score": total_score,
                 "issue_count": len(topic_issues),
@@ -758,7 +874,6 @@ def _format_travel_interval(i) -> Dict[str, Any]:
 # Client Clarification Pack (copy/paste ready)
 # ======================================================
 
-import re
 
 
 _PRIORITY_RANK = {"P0": 0, "P1": 1, "P2": 2}
