@@ -4,6 +4,7 @@ from datetime import date
 from src.packet import (
     ALLOWED_TOPIC_NAMES,
     ALLOWED_RESOLUTION_TYPES,
+    ALLOWED_EXECUTIVE_ROLES,
     FINDING_CODE_REGISTRY,
     PACKET_SCHEMA_VERSION,
     build_attorney_review_packet,
@@ -57,6 +58,15 @@ def test_packet_includes_schema_version_and_uses_frozen_enums():
     packet = build_attorney_review_packet(result)
 
     assert packet["meta"]["schema_version"] == PACKET_SCHEMA_VERSION
+
+    ex = packet.get("executive_summary") or {}
+    assert ex.get("schema_version") == PACKET_SCHEMA_VERSION
+
+    # Executive summary must cap at 5 items and use frozen role values.
+    ex_items = ex.get("top_risks") or []
+    assert len(ex_items) <= 5
+    for it in ex_items:
+        assert it.get("role") in ALLOWED_EXECUTIVE_ROLES
 
     # Topics must come from the frozen set.
     for item in packet.get("top_risks", {}).get("items", []):

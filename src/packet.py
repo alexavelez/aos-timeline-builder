@@ -14,6 +14,7 @@ from .glue import RawSnapshot
 
 Severity = Literal["high", "medium", "low"]
 ResolutionType = Literal["must_fix", "explain", "prepare_evidence"]
+ExecutiveRole = Literal["beneficiary", "petitioner", "both", "case"]
 
 # ======================================================
 # Packet schema stabilization (productization)
@@ -21,13 +22,21 @@ ResolutionType = Literal["must_fix", "explain", "prepare_evidence"]
 
 # Increment when the *output packet structure* changes in a backward-incompatible way.
 # Keep this stable once clients depend on it.
-PACKET_SCHEMA_VERSION = "0.3.1"
+PACKET_SCHEMA_VERSION = "0.3.2"
 
 # Freeze resolution types for product stability.
 ALLOWED_RESOLUTION_TYPES: Tuple[ResolutionType, ...] = (
     "must_fix",
     "explain",
     "prepare_evidence",
+)
+
+# Freeze executive summary roles for product stability.
+ALLOWED_EXECUTIVE_ROLES: Tuple[ExecutiveRole, ...] = (
+    "beneficiary",
+    "petitioner",
+    "both",
+    "case",
 )
 
 # ======================================================
@@ -1126,6 +1135,112 @@ def build_client_clarification_pack(issues: List[Issue]) -> Dict[str, Any]:
     }
 
 
+# ======================================================
+# Executive Summary (page 1 for PDF; lawyer-first)
+# ======================================================
+
+
+def _role_from_ref_ids(ref_ids: List[str]) -> ExecutiveRole:
+    """Infer who the item applies to using its ref_ids.
+
+    We keep this intentionally conservative and deterministic.
+    """
+
+    who_set = set()
+    for ref in ref_ids or []:
+        w = _who_from_ref_id(ref)
+        if w in ("beneficiary", "petitioner", "case"):
+            who_set.add(w)
+
+    if "beneficiary" in who_set and "petitioner" in who_set:
+        return "both"
+    if "beneficiary" in who_set:
+        return "beneficiary"
+    if "petitioner" in who_set:
+        return "petitioner"
+    return "case"
+
+
+def build_executive_summary(packet: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a lawyer-first executive summary.
+
+    This is aggregation + formatting only. It must never omit details elsewhere.
+    """
+
+    meta = packet.get("meta", {}) or {}
+    top_items = (packet.get("top_risks", {}) or {}).get("items", []) or []
+    top5 = top_items[:5]
+
+    exec_risks: List[Dict[str, Any]] = []
+    severities = []
+    evidence_topics: List[str] = []
+
+    for item in top5:
+        ref_ids = item.get("ref_ids") or []
+        role = _role_from_ref_ids(list(ref_ids))
+        narrative = (item.get("narrative") or {}).get("rendered_text")
+
+        exec_risks.append(
+            {
+                "rank": item.get("rank"),
+                "topic": item.get("topic"),
+                "title": item.get("title"),
+                "role": role,
+                "severity": item.get("severity"),
+                "resolution_type": item.get("resolution_type"),
+                "finding_codes": ((item.get("findings") or {}).get("codes") or []),
+                "summary": (str(narrative).strip() if narrative else None),
+            }
+        )
+
+        if item.get("severity"):
+            severities.append(item["severity"])
+        if item.get("resolution_type") == "prepare_evidence":
+            title = item.get("title") or item.get("topic")
+            if title:
+                evidence_topics.append(str(title))
+
+    # Client follow-up snapshot
+    ccp = packet.get("client_clarification_pack") or {}
+    ccp_summary = ccp.get("summary") or {}
+    by_priority = ccp_summary.get("by_priority") or {}
+    p0 = int(by_priority.get("P0", 0))
+    p1 = int(by_priority.get("P1", 0))
+
+    blocking_topics: List[str] = []
+    for q in (ccp.get("questions") or []):
+        if q.get("priority") == "P0":
+            t = q.get("topic")
+            if t:
+                blocking_topics.append(str(t))
+    blocking_topics = _dedupe_preserve_order(blocking_topics)
+
+    # Overall risk posture (mechanical)
+    posture: str
+    if any(s == "high" for s in severities):
+        posture = "elevated"
+    elif any(s == "medium" for s in severities):
+        posture = "moderate"
+    else:
+        posture = "low"
+
+    return {
+        "schema_version": meta.get("schema_version"),
+        "window_start": meta.get("window_start"),
+        "window_end": meta.get("window_end"),
+        "top_risks": exec_risks,
+        "client_followup": {
+            "required_p0": p0,
+            "recommended_p1": p1,
+            "blocking_topics": blocking_topics,
+        },
+        "evidence_planning": {
+            "items": _dedupe_preserve_order(evidence_topics),
+        },
+        "overall_risk_posture": posture,
+    }
+
+
 def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
     """
     Build a machine-friendly "attorney review packet" dict.
@@ -1246,5 +1361,8 @@ def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
         # Optional: include snapshots as a flat list too (useful for UI/debug)
         "raw_snapshots": [asdict(s) for s in result.snapshots],
     }
+
+    # Executive summary is lawyer-first and used as page 1 in exports.
+    packet["executive_summary"] = build_executive_summary(packet)
 
     return packet

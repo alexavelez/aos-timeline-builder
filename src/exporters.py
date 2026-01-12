@@ -40,6 +40,51 @@ def export_packet_markdown(packet: Dict[str, Any]) -> str:
         parts.append(f"- **Validation window:** {window_start} → {window_end}")
     parts.append("")
 
+    # Executive summary (lawyer-first)
+    ex = packet.get("executive_summary") or {}
+    if ex:
+        parts.append("## Executive Summary")
+        posture = ex.get("overall_risk_posture")
+        if posture:
+            parts.append(f"- **Overall risk posture:** {str(posture).upper()}")
+
+        # Top 5 risks
+        parts.append("")
+        parts.append("### Top Risks (Top 5)")
+        for idx, item in enumerate(ex.get("top_risks") or [], start=1):
+            topic = item.get("topic")
+            role = item.get("role")
+            severity = item.get("severity")
+            res_type = item.get("resolution_type")
+            summary = item.get("summary")
+            parts.append(f"{idx}. **{topic} ({role})** — **{severity}** — *{res_type}*")
+            if summary:
+                parts.append(f"   - {str(summary).strip()}")
+
+        # Client follow-up snapshot
+        follow = ex.get("client_followup") or {}
+        parts.append("")
+        parts.append("### Client Follow-Up")
+        parts.append(f"- **Required (P0):** {follow.get('required_p0', 0)}")
+        parts.append(f"- **Recommended (P1):** {follow.get('recommended_p1', 0)}")
+        blocking = follow.get("blocking_topics") or []
+        if blocking:
+            parts.append(f"- **Blocking topics:** {', '.join(blocking)}")
+
+        # Evidence planning snapshot
+        ev = (ex.get("evidence_planning") or {}).get("items") or []
+        parts.append("")
+        parts.append("### Evidence Planning")
+        if not ev:
+            parts.append("- (none)")
+        else:
+            for e in ev:
+                parts.append(f"- {e}")
+        parts.append("")
+
+    parts.append("# Detailed Analysis")
+    parts.append("")
+
     # Client clarification pack (copy/paste ready)
     ccp = packet.get("client_clarification_pack")
     if ccp:
@@ -128,7 +173,60 @@ def export_packet_pdf(packet: Dict[str, Any], output_path: str | Path) -> Path:
         y -= line_h
 
     meta = packet.get("meta", {})
-    draw_line("Attorney Review Packet", bold=True)
+    # Page 1: Executive Summary
+    draw_line("EXECUTIVE SUMMARY — AOS TIMELINE REVIEW", bold=True)
+    if meta.get("schema_version"):
+        draw_line(f"Packet schema: {meta['schema_version']}")
+    if meta.get("window_start") and meta.get("window_end"):
+        draw_line(f"Analysis window: {meta['window_start']} → {meta['window_end']}")
+    y -= 8
+
+    ex = packet.get("executive_summary") or {}
+    posture = ex.get("overall_risk_posture")
+    if posture:
+        draw_line(f"Overall risk posture: {str(posture).upper()}")
+        y -= 6
+
+    draw_line("Top Risks (Top 5)", bold=True)
+    top5 = ex.get("top_risks") or []
+    if not top5:
+        draw_line("(none)")
+    else:
+        for idx, item in enumerate(top5, start=1):
+            topic = item.get("topic", "other")
+            role = item.get("role", "case")
+            severity = item.get("severity")
+            res_type = item.get("resolution_type")
+            summary = item.get("summary")
+            draw_line(f"{idx}. {topic} ({role})", bold=True)
+            draw_line(f"Severity: {severity} | Action: {res_type}")
+            if summary:
+                for line in str(summary).splitlines():
+                    draw_line(line)
+            y -= 4
+
+    follow = ex.get("client_followup") or {}
+    draw_line("Client Follow-Up", bold=True)
+    draw_line(f"Required (P0): {follow.get('required_p0', 0)}")
+    draw_line(f"Recommended (P1): {follow.get('recommended_p1', 0)}")
+    blocking = follow.get("blocking_topics") or []
+    if blocking:
+        draw_line("Blocking topics: " + ", ".join([str(b) for b in blocking]))
+    y -= 6
+
+    draw_line("Evidence Planning", bold=True)
+    ev_items = (ex.get("evidence_planning") or {}).get("items") or []
+    if not ev_items:
+        draw_line("(none)")
+    else:
+        for e in ev_items:
+            draw_line(f"- {e}")
+
+    # Page break: Detailed analysis
+    c.showPage()
+    y = height - 1.0 * inch
+
+    draw_line("DETAILED ANALYSIS", bold=True)
     if meta.get("schema_version"):
         draw_line(f"Schema version: {meta['schema_version']}")
     if meta.get("window_start") and meta.get("window_end"):
@@ -172,6 +270,15 @@ def export_packet_pdf(packet: Dict[str, Any], output_path: str | Path) -> Path:
                 for line in str(narrative).splitlines():
                     draw_line(line)
             y -= 6
+
+    # Issue counts
+    counts = (packet.get("issues") or {}).get("counts") or {}
+    if counts:
+        y -= 4
+        draw_line("Issue Counts", bold=True)
+        for k in ("high", "medium", "low", "total"):
+            if k in counts:
+                draw_line(f"{k.capitalize()}: {counts[k]}")
 
     c.save()
     return out

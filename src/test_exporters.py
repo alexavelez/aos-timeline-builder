@@ -65,6 +65,8 @@ def test_export_packet_markdown_smoke():
     packet = _build_demo_packet()
     md = export_packet_markdown(packet)
     assert "# Attorney Review Packet" in md
+    assert "## Executive Summary" in md
+    assert "# Detailed Analysis" in md
     assert "## Top Risks" in md
     # Should be copy/paste ready section if present
     assert "Client Clarification Pack" in md
