@@ -30,6 +30,7 @@ from .validate import (
     detect_address_overlaps,
 )
 from .travel_intelligence import analyze_travel, TravelAnalysisResult
+from .employment_intelligence import analyze_employment_authorization
 
 
 @dataclass(frozen=True)
@@ -272,6 +273,33 @@ def load_case_from_json(
         employment=case.petitioner.employment,
     )
     issues.extend(tag_issues(travel_pet.issues, "pet_travel_history"))
+
+    # Employment authorization / travel consistency intelligence
+    issues.extend(
+        tag_issues(
+            analyze_employment_authorization(
+                role="beneficiary",
+                employment=case.beneficiary.employment,
+                travel_intervals=travel_ben.intervals,
+                window_start=window_start,
+                window_end=window_end,
+            ),
+            "ben_employment_history",
+        )
+    )
+
+    issues.extend(
+        tag_issues(
+            analyze_employment_authorization(
+                role="petitioner",
+                employment=case.petitioner.employment,
+                travel_intervals=travel_pet.intervals,
+                window_start=window_start,
+                window_end=window_end,
+            ),
+            "pet_employment_history",
+        )
+    )
 
     return BuildResult(
         case=case,

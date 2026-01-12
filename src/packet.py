@@ -183,6 +183,8 @@ FINDING_CODE_REGISTRY: Tuple[str, ...] = (
     "employment_window_end_missing",
     "employment_gap",
     "employment_overlap",
+    "employment_during_long_absence",
+    "possible_unauthorized_work_risk",
     "employment_other",
 
     # Joint residency
@@ -355,6 +357,12 @@ def _extract_finding_code(issue: Issue) -> Optional[str]:
 
     # ---- Employment ----
     if cat == "employment":
+        # Employment + long-absence intelligence
+        if "employment appears active during time outside" in msg or "active during time outside" in msg:
+            return "employment_during_long_absence"
+        if "work authorization" in msg or "possible unauthorized" in msg or "unauthorized work" in msg:
+            return "possible_unauthorized_work_risk"
+
         if "no employment history provided for the selected window" in msg:
             return "no_employment_history_provided"
         if "no employment entries overlap the required window" in msg:
@@ -425,6 +433,8 @@ def _resolution_type_for_cluster(
     evidence_driven_codes = {
         "not_inspected_last_entry",
         "not_inspected",
+        # Employment authorization / compliance is typically evidence/explanation driven.
+        "possible_unauthorized_work_risk",
     }
 
     # Findings that are almost always data-completion items.
@@ -470,6 +480,10 @@ def _resolution_type_for_cluster(
     # Topic-based defaults
     if codes & evidence_driven_codes:
         return "prepare_evidence"
+
+    # Employment + travel consistency: typically explain (not a "fix" unless dates are wrong).
+    if "employment_during_long_absence" in codes:
+        return "explain"
 
     if topic in {"address_continuity", "employment"}:
         # These are primarily completeness/correction tasks.
