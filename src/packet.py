@@ -21,7 +21,7 @@ ResolutionType = Literal["must_fix", "explain", "prepare_evidence"]
 
 # Increment when the *output packet structure* changes in a backward-incompatible way.
 # Keep this stable once clients depend on it.
-PACKET_SCHEMA_VERSION = "0.3.0"
+PACKET_SCHEMA_VERSION = "0.3.1"
 
 # Freeze resolution types for product stability.
 ALLOWED_RESOLUTION_TYPES: Tuple[ResolutionType, ...] = (
@@ -40,6 +40,7 @@ RISK_WEIGHTS = {
     "address_continuity": 70, # Gaps/overlaps in residence history
     "joint_residency": 50,    # Shared residence evidence issues
     "employment": 40,         # Employment continuity issues
+    "marriage": 30,           # Evidence planning prompts near marriage date
     "formatting": 10,         # State code warnings, minor formatting
     "other": 20,              # fallback
 }
@@ -108,6 +109,18 @@ TOPIC_METADATA: Dict[str, Dict[str, Any]] = {
             "Fill missing employment periods (including unemployment) with dates.",
             "Clarify overlaps (multiple jobs vs incorrect dates).",
             "Confirm self-employment details (business name, dates, location).",
+        ],
+    },
+    "marriage": {
+        "title": "Marriage Timeline Evidence Planning",
+        "desc": (
+            "Timeline patterns near the marriage date can lead to follow-up questions. "
+            "These prompts help attorneys plan explanations and evidence proactively, without making any legal conclusions."
+        ),
+        "actions": [
+            "Confirm living arrangement near/after the marriage date.",
+            "If separated for work/school/travel, prepare a brief explanation.",
+            "Gather supporting evidence (communications, visits, joint finances, plans to reunite) as needed.",
         ],
     },
     "formatting": {
@@ -193,6 +206,8 @@ FINDING_CODE_REGISTRY: Tuple[str, ...] = (
     "joint_residency_other",
 
     # Marriage / date
+    "no_shared_residence_near_marriage",
+    "long_separation_near_marriage",
     "invalid_marriage_date",
     "marriage_other",
     "invalid_date",
@@ -250,6 +265,9 @@ def _map_issue_to_topic(issue: Issue) -> str:
 
     if cat == "joint_residency":
         return "joint_residency"
+
+    if cat == "marriage":
+        return "marriage"
 
     if cat == "employment":
         return "employment"
@@ -386,6 +404,10 @@ def _extract_finding_code(issue: Issue) -> Optional[str]:
 
     # ---- Marriage / date / other ----
     if cat == "marriage":
+        if "no shared residential address overlap" in msg and "around the marriage date" in msg:
+            return "no_shared_residence_near_marriage"
+        if "extended travel separation" in msg and "near the marriage date" in msg:
+            return "long_separation_near_marriage"
         if "invalid or unrecognized date" in msg:
             return "invalid_marriage_date"
         return "marriage_other"
@@ -435,6 +457,10 @@ def _resolution_type_for_cluster(
         "not_inspected",
         # Employment authorization / compliance is typically evidence/explanation driven.
         "possible_unauthorized_work_risk",
+
+        # Marriage timeline prompts (evidence planning)
+        "no_shared_residence_near_marriage",
+        "long_separation_near_marriage",
     }
 
     # Findings that are almost always data-completion items.

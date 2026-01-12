@@ -31,6 +31,7 @@ from .validate import (
 )
 from .travel_intelligence import analyze_travel, TravelAnalysisResult
 from .employment_intelligence import analyze_employment_authorization
+from .marriage_intelligence import analyze_marriage_timeline
 
 
 @dataclass(frozen=True)
@@ -298,6 +299,21 @@ def load_case_from_json(
                 window_end=window_end,
             ),
             "pet_employment_history",
+        )
+    )
+
+    # Marriage timeline intelligence (evidence planning prompts)
+    issues.extend(
+        tag_issues(
+            analyze_marriage_timeline(
+                case,
+                joint_residency=jr,
+                travel_beneficiary=travel_ben,
+                travel_petitioner=travel_pet,
+                window_start=window_start,
+                window_end=window_end,
+            ),
+            "marriage_timeline",
         )
     )
 
