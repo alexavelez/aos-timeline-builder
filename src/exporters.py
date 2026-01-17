@@ -34,6 +34,7 @@ def export_packet_markdown(packet: Dict[str, Any]) -> str:
 
     parts: List[str] = []
     parts.append("# Attorney Review Packet")
+    policy_label = ((packet.get("policy") or {}).get("name") and (packet.get("policy") or {}).get("version"))
     if schema_version:
         parts.append(f"- **Schema version:** `{schema_version}`")
     if window_start and window_end:
@@ -44,13 +45,20 @@ def export_packet_markdown(packet: Dict[str, Any]) -> str:
     ex = packet.get("executive_summary") or {}
     if ex:
         parts.append("## Executive Summary")
+
+        policy = (ex.get("policy") or {})
+        policy_label = policy.get("label")
+        if policy_label:
+            parts.append(f"_Policy: {policy_label}_")
+
         posture = ex.get("overall_risk_posture")
         if posture:
             parts.append(f"- **Overall risk posture:** {str(posture).upper()}")
 
-        # Top 5 risks
+        # Top n risks
         parts.append("")
-        parts.append("### Top Risks (Top 5)")
+        top_n = len(ex.get("top_risks") or [])
+        parts.append(f"### Top Risks (Top {top_n})")
         for idx, item in enumerate(ex.get("top_risks") or [], start=1):
             topic = item.get("topic")
             role = item.get("role")
@@ -175,6 +183,10 @@ def export_packet_pdf(packet: Dict[str, Any], output_path: str | Path) -> Path:
     meta = packet.get("meta", {})
     # Page 1: Executive Summary
     draw_line("EXECUTIVE SUMMARY — AOS TIMELINE REVIEW", bold=True)
+    pol = (packet.get("executive_summary") or {}).get("policy") or {}
+    label = pol.get("label")
+    if label:
+        draw_line(f"Policy: {label}")
     if meta.get("schema_version"):
         draw_line(f"Packet schema: {meta['schema_version']}")
     if meta.get("window_start") and meta.get("window_end"):
@@ -187,12 +199,12 @@ def export_packet_pdf(packet: Dict[str, Any], output_path: str | Path) -> Path:
         draw_line(f"Overall risk posture: {str(posture).upper()}")
         y -= 6
 
-    draw_line("Top Risks (Top 5)", bold=True)
-    top5 = ex.get("top_risks") or []
-    if not top5:
+    top_items = ex.get("top_risks") or []
+    draw_line(f"Top Risks (Top {len(top_items)})", bold=True)
+    if not top_items:
         draw_line("(none)")
     else:
-        for idx, item in enumerate(top5, start=1):
+        for idx, item in enumerate(top_items, start=1):
             topic = item.get("topic", "other")
             role = item.get("role", "case")
             severity = item.get("severity")
