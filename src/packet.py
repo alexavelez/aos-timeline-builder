@@ -1193,6 +1193,11 @@ def build_executive_summary(packet: Dict[str, Any]) -> Dict[str, Any]:
     top_items = (packet.get("top_risks", {}) or {}).get("items", []) or []
 
     policy_dict = packet.get("policy") or {}
+
+    policy_name = policy_dict.get("name") or "Default"
+    policy_version = policy_dict.get("version") or "1.0"
+    policy_label = f"{policy_name} v{policy_version}"
+
     try:
         top_n = int(policy_dict.get("executive_summary_top_n", 5))
     except (TypeError, ValueError):
@@ -1254,19 +1259,24 @@ def build_executive_summary(packet: Dict[str, Any]) -> Dict[str, Any]:
         posture = "low"
 
     return {
-        "schema_version": meta.get("schema_version"),
-        "window_start": meta.get("window_start"),
-        "window_end": meta.get("window_end"),
-        "top_risks": exec_risks,
-        "client_followup": {
-            "required_p0": p0,
-            "recommended_p1": p1,
-            "blocking_topics": blocking_topics,
-        },
-        "evidence_planning": {
-            "items": _dedupe_preserve_order(evidence_topics),
-        },
-        "overall_risk_posture": posture,
+    "schema_version": meta.get("schema_version"),
+    "window_start": meta.get("window_start"),
+    "window_end": meta.get("window_end"),
+    "policy": {
+        "name": policy_name,
+        "version": policy_version,
+        "label": policy_label,
+    },
+    "top_risks": exec_risks,
+    "client_followup": {
+        "required_p0": p0,
+        "recommended_p1": p1,
+        "blocking_topics": blocking_topics,
+    },
+    "evidence_planning": {
+        "items": _dedupe_preserve_order(evidence_topics),
+    },
+    "overall_risk_posture": posture,
     }
 
 
