@@ -7,7 +7,8 @@ from datetime import date
 import re
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from .pipeline import BuildResult
+from .pipeline import BuildResult, load_case_from_json
+from .policy import FirmPolicy, DEFAULT_POLICY, load_policy
 from .validate import Issue
 from .glue import RawSnapshot
 
@@ -15,6 +16,27 @@ from .glue import RawSnapshot
 Severity = Literal["high", "medium", "low"]
 ResolutionType = Literal["must_fix", "explain", "prepare_evidence"]
 ExecutiveRole = Literal["beneficiary", "petitioner", "both", "case"]
+
+def _resolve_policy(
+    *,
+    policy: Optional[FirmPolicy] = None,
+    policy_path: Optional[str] = None,
+) -> tuple[FirmPolicy, Dict[str, Any]]:
+    """
+    Resolve policy with precedence:
+      1) explicit policy object
+      2) policy file path (YAML/JSON)
+      3) DEFAULT_POLICY
+    Returns (policy, policy_meta).
+    """
+    if policy is not None:
+        return policy, {"source": "object"}
+
+    if policy_path:
+        p = load_policy(policy_path)
+        return p, {"source": "file", "path": policy_path}
+
+    return DEFAULT_POLICY, {"source": "default"}
 
 # ======================================================
 # Packet schema stabilization (productization)
@@ -1169,13 +1191,20 @@ def build_executive_summary(packet: Dict[str, Any]) -> Dict[str, Any]:
 
     meta = packet.get("meta", {}) or {}
     top_items = (packet.get("top_risks", {}) or {}).get("items", []) or []
-    top5 = top_items[:5]
+
+    policy_dict = packet.get("policy") or {}
+    try:
+        top_n = int(policy_dict.get("executive_summary_top_n", 5))
+    except (TypeError, ValueError):
+        top_n = 5
+
+    topn_items = top_items[:top_n]
 
     exec_risks: List[Dict[str, Any]] = []
     severities = []
     evidence_topics: List[str] = []
 
-    for item in top5:
+    for item in topn_items:
         ref_ids = item.get("ref_ids") or []
         role = _role_from_ref_ids(list(ref_ids))
         narrative = (item.get("narrative") or {}).get("rendered_text")
@@ -1241,7 +1270,7 @@ def build_executive_summary(packet: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
+def build_attorney_review_packet(result: BuildResult, policy=DEFAULT_POLICY) -> Dict[str, Any]:
     """
     Build a machine-friendly "attorney review packet" dict.
 
@@ -1362,7 +1391,39 @@ def build_attorney_review_packet(result: BuildResult) -> Dict[str, Any]:
         "raw_snapshots": [asdict(s) for s in result.snapshots],
     }
 
+    packet["policy"] = policy.model_dump()
+    packet.setdefault("policy_meta", {"source": "object"})
+
     # Executive summary is lawyer-first and used as page 1 in exports.
     packet["executive_summary"] = build_executive_summary(packet)
 
+    return packet
+
+def build_packet_from_json(
+    raw: Dict[str, Any],
+    *,
+    policy: Optional[FirmPolicy] = None,
+    policy_path: Optional[str] = None,
+    assume_us_mdy: bool = True,
+    today=None,
+    validate_petitioner: bool = False,
+) -> Dict[str, Any]:
+    """
+    Convenience entrypoint:
+      raw dict -> BuildResult (pipeline) -> attorney review packet (packet)
+    Policy is optional; DEFAULT_POLICY is used if nothing is provided.
+    """
+    p, meta = _resolve_policy(policy=policy, policy_path=policy_path)
+
+    result = load_case_from_json(
+        raw,
+        assume_us_mdy=assume_us_mdy,
+        today=today,
+        validate_petitioner=validate_petitioner,
+    )
+    packet = build_attorney_review_packet(result, policy=p)
+
+    # Ensure meta is present even if build_attorney_review_packet already sets policy dump
+    packet["policy"] = p.model_dump()
+    packet["policy_meta"] = meta
     return packet
