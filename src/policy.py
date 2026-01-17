@@ -9,6 +9,10 @@ from pydantic import BaseModel, Field
 
 
 class FirmPolicy(BaseModel):
+    # ---- Identity / traceability ----
+    name: str = Field(default="Default")
+    version: str = Field(default="1.0")
+
     # ---- Thresholds (numbers) ----
     long_absence_medium_days: int = Field(default=90, ge=1)
     long_absence_high_days: int = Field(default=180, ge=1)
@@ -16,13 +20,15 @@ class FirmPolicy(BaseModel):
     executive_summary_top_n: int = Field(default=5, ge=1, le=10)
 
     # ---- Output inclusion rules ----
-    clarification_include_priorities: List[str] = Field(default_factory=lambda: ["P0", "P1"])
+    clarification_include_priorities: List[str] = Field(
+        default_factory=lambda: ["P0", "P1"]
+    )
     clarification_include_topics: Optional[List[str]] = None
 
-    # ---- Wording/tone ----
+    # ---- Wording / tone ----
     use_soft_language: bool = True
     disclaimer_text: Optional[str] = "Draft QC output. Attorney review required."
-
+    
 
 DEFAULT_POLICY = FirmPolicy()
 
