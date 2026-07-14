@@ -561,8 +561,14 @@ def _render_exports(packet: dict) -> None:
     with col2:
         try:
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                export_packet_pdf(packet, tmp.name)
-                pdf_bytes = Path(tmp.name).read_bytes()
+                tmp_path = Path(tmp.name)
+            try:
+                export_packet_pdf(packet, tmp_path)
+                pdf_bytes = tmp_path.read_bytes()
+            finally:
+                # Case data can include sensitive PII (names, addresses, A-numbers) -
+                # never leave the rendered PDF sitting on disk after we've read it.
+                tmp_path.unlink(missing_ok=True)
             st.download_button(
                 "Download PDF",
                 data=pdf_bytes,
