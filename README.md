@@ -1,6 +1,8 @@
 # AOS Timeline Builder
 
-AI-assisted timeline and risk review for marriage-based adjustment of status (AOS) cases.
+Automated timeline and risk review for marriage-based adjustment of status (AOS) cases.
+
+**[Try the live demo →](https://aos-timeline-builder.streamlit.app)** (loads a synthetic sample case — no real data used)
 
 You give it a case's address, employment, and travel history (petitioner and beneficiary), and it flags the same kinds of continuity problems an experienced immigration paralegal checks for by hand — before USCIS finds them.
 
