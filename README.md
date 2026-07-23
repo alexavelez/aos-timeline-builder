@@ -1,6 +1,6 @@
 # AOS Timeline Builder
 
-Automated timeline and risk review for marriage-based adjustment of status (AOS) cases.
+Automated timeline and consistency review for marriage-based adjustment of status (AOS) cases.
 
 **[Try the live demo →](https://aos-timeline-builder.streamlit.app)** (loads a synthetic sample case — no real data used)
 
@@ -27,7 +27,7 @@ Marriage-based AOS cases require documenting years of address, employment, and t
 
 None of this is exotic — it's what an attorney or paralegal already checks for. The problem is that checking it by hand means manually cross-referencing every address, job, and trip against every other one, for both spouses, across a multi-year window. It's tedious, easy to miss something in, and the cost of missing something isn't a typo — it's a Request for Evidence, months of delay, or added scrutiny in the interview.
 
-This tool automates that cross-referencing. It doesn't just organize the timeline — it applies the same red-flag checks an attorney would, scores each finding by severity and urgency, and turns the result into two things a firm can act on immediately: a risk summary for the attorney, and a ready-to-send email asking the client for exactly what's missing.
+This tool automates that cross-referencing. It doesn't just organize the timeline — it applies the same red-flag checks an attorney would, scores each finding by severity and urgency, and turns the result into two things a firm can act on immediately: a flagged-items summary for the attorney, and a ready-to-send email asking the client for exactly what's missing.
 
 **This is a QC/screening aid, not a legal determination.** Every packet it generates carries the same disclaimer: *"Draft QC output. Attorney review required."* It surfaces things worth a second look — it doesn't decide what's fine and what isn't. That judgment stays with a licensed attorney.
 
@@ -35,12 +35,12 @@ This tool automates that cross-referencing. It doesn't just organize the timelin
 
 - **Address & employment continuity** — detects gaps and overlaps against the required lookback window (default: last 5 years), aware of partial-date precision (year/month/day) so it doesn't manufacture false gaps from incomplete dates.
 - **Joint residency detection** — finds the earliest point the petitioner and beneficiary's addresses overlap, and flags it if there's no shared-residence evidence at all.
-- **Travel & admission risk** — pairs entries/exits, flags missing I-94 or inspection data on the most recent entry (the field most likely to matter for AOS eligibility), and flags extended absences.
+- **Travel & admission completeness** — pairs entries/exits, flags missing I-94 or inspection data on the most recent entry (the field most likely to matter for AOS eligibility), and flags extended absences.
 - **Employment authorization & marriage-timeline intelligence** — flags employment overlapping a long absence, and separation patterns around the marriage date specifically.
-- **Risk scoring & prioritization** — every finding is clustered into a topic, scored, and given a resolution type (`must_fix`, `explain`, `prepare_evidence`) so the attorney knows what's urgent versus what just needs a client explanation.
+- **Flagging & prioritization** — every finding is clustered into a topic, scored, and given a resolution type (`confirm_or_correct`, `explain`, `prepare_evidence`) so the attorney knows what's urgent versus what just needs a client explanation.
 - **Client clarification email** — a deduplicated, prioritized (P0/P1/P2), copy/paste-ready email asking the client for exactly the missing information.
 - **Executive summary + exports** — a lawyer-first summary page, exportable as Markdown or PDF, plus the full structured packet as JSON.
-- **Configurable firm policy** — risk thresholds, how many top risks to surface, and wording are all adjustable via a policy file rather than hardcoded.
+- **Configurable firm policy** — flagging thresholds, how many flagged items to surface, and wording (including the disclaimer text) are all adjustable via a policy file rather than hardcoded.
 
 ## How to use it
 
@@ -51,11 +51,11 @@ Two ways to enter a case in the app:
 
 ## Screenshots
 
-**Executive summary** — the lawyer-first view: overall risk posture, top findings, and what still needs client follow-up.
+**Executive summary** — the lawyer-first view: overall review status, top findings, and what still needs client follow-up.
 
 ![Executive summary](screenshots/executive_summary.png)
 
-**Attorney detail** — every risk cluster with its full narrative, plus the complete filterable issue list.
+**Attorney detail** — every flagged item with its full narrative, plus the complete filterable issue list.
 
 ![Attorney detail](screenshots/attorney_detail.png)
 
@@ -90,7 +90,7 @@ src/
   validate.py    - core gap/overlap detection
   joint_residency.py, travel_intelligence.py,
   employment_intelligence.py, marriage_intelligence.py
-                 - the specific risk-detection modules
+                 - the specific consistency-detection modules
   pipeline.py    - orchestrates parsing + validation into a BuildResult
   packet.py      - turns issues into a scored, prioritized attorney review packet,
                    the executive summary, and the client clarification email

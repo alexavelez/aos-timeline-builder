@@ -6,7 +6,7 @@ from src.pipeline import load_case_from_json
 
 
 def _find_topic_item(packet: dict, topic: str) -> dict | None:
-    for item in packet.get("top_risks", {}).get("items", []):
+    for item in packet.get("flagged_items", {}).get("items", []):
         if item.get("topic") == topic:
             return item
     return None
@@ -65,7 +65,7 @@ def test_employment_long_absence_flags_beneficiary_and_petitioner_differently():
 
     codes = set((employment_item.get("findings", {}) or {}).get("codes", []) or [])
     assert "employment_during_long_absence" in codes
-    assert "possible_unauthorized_work_risk" in codes
+    assert "possible_unauthorized_employment_gap" in codes
 
 
 def test_short_absence_does_not_trigger_employment_long_absence_flags():
@@ -100,4 +100,4 @@ def test_short_absence_does_not_trigger_employment_long_absence_flags():
         return
     codes = set((employment_item.get("findings", {}) or {}).get("codes", []) or [])
     assert "employment_during_long_absence" not in codes
-    assert "possible_unauthorized_work_risk" not in codes
+    assert "possible_unauthorized_employment_gap" not in codes

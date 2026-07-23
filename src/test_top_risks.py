@@ -1,7 +1,7 @@
 # src/test_top_risks.py
 
 from src.validate import Issue
-from src.packet import build_top_risk_summary
+from src.packet import build_flagged_item_summary
 
 
 def test_top_risks_ranking_prefers_travel_admission():
@@ -29,7 +29,7 @@ def test_top_risks_ranking_prefers_travel_admission():
         ),
     ]
 
-    top = build_top_risk_summary(issues, n=3)
+    top = build_flagged_item_summary(issues, n=3)
     assert top[0]["topic"] == "travel_admission"
     assert top[0]["severity"] == "high"
     assert top[0]["issue_count"] == 1
@@ -41,7 +41,7 @@ def test_top_risks_clusters_address_continuity():
         Issue(severity="high", category="address_history", message="Address gap at the end of the window: ...", ref_id="b"),
         Issue(severity="medium", category="address_history", message="Overlapping residential addresses for 2 day(s): ...", ref_id="c"),
     ]
-    top = build_top_risk_summary(issues, n=5)
+    top = build_flagged_item_summary(issues, n=5)
     topics = [t["topic"] for t in top]
     assert "address_continuity" in topics
     # address_continuity should appear once, not three times (clustered)

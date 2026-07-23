@@ -14,7 +14,7 @@ from .glue import RawSnapshot
 
 
 Severity = Literal["high", "medium", "low"]
-ResolutionType = Literal["must_fix", "explain", "prepare_evidence"]
+ResolutionType = Literal["confirm_or_correct", "explain", "prepare_evidence"]
 ExecutiveRole = Literal["beneficiary", "petitioner", "both", "case"]
 
 def _resolve_policy(
@@ -44,11 +44,18 @@ def _resolve_policy(
 
 # Increment when the *output packet structure* changes in a backward-incompatible way.
 # Keep this stable once clients depend on it.
-PACKET_SCHEMA_VERSION = "0.3.2"
+#
+# 0.4.0: Renamed advisory-sounding fields/values to neutral, descriptive terms so
+# output reads as data-consistency review rather than legal risk/denial prediction:
+#   top_risks -> flagged_items, overall_risk_posture -> overall_review_status
+#   (elevated/moderate/low -> needs_attention/some_follow_up/minimal_follow_up),
+#   blocking_topics -> priority_topics, resolution_type "must_fix" -> "confirm_or_correct",
+#   finding code possible_unauthorized_work_risk -> possible_unauthorized_employment_gap.
+PACKET_SCHEMA_VERSION = "0.4.0"
 
 # Freeze resolution types for product stability.
 ALLOWED_RESOLUTION_TYPES: Tuple[ResolutionType, ...] = (
-    "must_fix",
+    "confirm_or_correct",
     "explain",
     "prepare_evidence",
 )
@@ -62,10 +69,10 @@ ALLOWED_EXECUTIVE_ROLES: Tuple[ExecutiveRole, ...] = (
 )
 
 # ======================================================
-# Top Risk Summary (attorney-facing)
+# Flagged Item Summary (attorney-facing)
 # ======================================================
 
-RISK_WEIGHTS = {
+TOPIC_WEIGHTS = {
     "travel_admission": 100,  # Missing I-94 / inspected / class of admission
     "travel_integrity": 35,   # Overlaps, missing pairings, contradictions
     "address_continuity": 70, # Gaps/overlaps in residence history
@@ -84,7 +91,7 @@ SEVERITY_BUMP = {
 
 TOPIC_METADATA: Dict[str, Dict[str, Any]] = {
     "travel_admission": {
-        "title": "Admission/Inspection Risk",
+        "title": "Admission/Inspection Completeness",
         "desc": (
             "AOS generally requires the applicant to have been inspected and admitted or paroled. "
             "Missing last-entry details (inspection, class of admission, I-94) can trigger RFEs or intensive questioning."
@@ -228,7 +235,7 @@ FINDING_CODE_REGISTRY: Tuple[str, ...] = (
     "employment_gap",
     "employment_overlap",
     "employment_during_long_absence",
-    "possible_unauthorized_work_risk",
+    "possible_unauthorized_employment_gap",
     "employment_other",
 
     # Joint residency
@@ -410,7 +417,7 @@ def _extract_finding_code(issue: Issue) -> Optional[str]:
         if "employment appears active during time outside" in msg or "active during time outside" in msg:
             return "employment_during_long_absence"
         if "work authorization" in msg or "possible unauthorized" in msg or "unauthorized work" in msg:
-            return "possible_unauthorized_work_risk"
+            return "possible_unauthorized_employment_gap"
 
         if "no employment history provided for the selected window" in msg:
             return "no_employment_history_provided"
@@ -470,13 +477,13 @@ def _resolution_type_for_cluster(
     max_severity: Severity,
     finding_codes: List[str],
 ) -> ResolutionType:
-    """Recommend what the attorney/paralegal should do with this risk cluster.
+    """Recommend what the attorney/paralegal should do with this flagged item cluster.
 
-    - must_fix: missing/contradictory data that needs correction or completion
+    - confirm_or_correct: missing/contradictory data that needs correction or completion
     - explain: facts may be accurate but should be explained in narrative or at interview
     - prepare_evidence: facts may be accurate but typically require evidence planning
 
-    Conservative policy: high severity defaults to must_fix unless the finding implies
+    Conservative policy: high severity defaults to confirm_or_correct unless the finding implies
     a legal/factual constraint that can't be "fixed" (e.g., not inspected).
     """
 
@@ -487,7 +494,7 @@ def _resolution_type_for_cluster(
         "not_inspected_last_entry",
         "not_inspected",
         # Employment authorization / compliance is typically evidence/explanation driven.
-        "possible_unauthorized_work_risk",
+        "possible_unauthorized_employment_gap",
 
         # Marriage timeline prompts (evidence planning)
         "no_shared_residence_near_marriage",
@@ -495,7 +502,7 @@ def _resolution_type_for_cluster(
     }
 
     # Findings that are almost always data-completion items.
-    must_fix_codes = {
+    data_completion_codes = {
         # Address window coverage / missing history
         "no_address_history_provided",
         "no_address_overlap_in_window",
@@ -544,19 +551,19 @@ def _resolution_type_for_cluster(
 
     if topic in {"address_continuity", "employment"}:
         # These are primarily completeness/correction tasks.
-        return "must_fix" if max_severity in {"high", "medium"} else "explain"
+        return "confirm_or_correct" if max_severity in {"high", "medium"} else "explain"
 
     if topic == "travel_admission":
         if codes & admission_missing_codes:
-            return "must_fix"
+            return "confirm_or_correct"
         return "prepare_evidence"
 
     if topic == "travel_integrity":
         # Baseline entry without exit is often outside-window and may not be fixable.
         if codes == {"baseline_entry_without_exit"}:
             return "explain"
-        if codes & must_fix_codes:
-            return "must_fix"
+        if codes & data_completion_codes:
+            return "confirm_or_correct"
         return "explain"
 
     if topic == "joint_residency":
@@ -564,19 +571,19 @@ def _resolution_type_for_cluster(
         if "no_joint_residency_detected" in codes:
             return "prepare_evidence"
         if "loose_joint_residency_match" in codes:
-            return "must_fix"
+            return "confirm_or_correct"
         return "explain"
 
     if topic == "formatting":
-        return "must_fix"
+        return "confirm_or_correct"
 
-    # Fallback: high/medium -> must_fix, low -> explain
-    return "must_fix" if max_severity in {"high", "medium"} else "explain"
+    # Fallback: high/medium -> confirm_or_correct, low -> explain
+    return "confirm_or_correct" if max_severity in {"high", "medium"} else "explain"
 
 
-def build_top_risk_summary(issues: List[Issue], n: int = 5) -> List[Dict[str, Any]]:
+def build_flagged_item_summary(issues: List[Issue], n: int = 5) -> List[Dict[str, Any]]:
     """
-    Cluster issues into attorney-friendly topics and rank them by risk score.
+    Cluster issues into attorney-friendly topics and rank them by priority score.
     Returns top N clusters.
 
     Scoring:
@@ -594,7 +601,7 @@ def build_top_risk_summary(issues: List[Issue], n: int = 5) -> List[Dict[str, An
 
     for topic, topic_issues in clusters.items():
         max_sev = _cluster_max_severity(topic_issues)
-        base_weight = RISK_WEIGHTS.get(topic, RISK_WEIGHTS["other"])
+        base_weight = TOPIC_WEIGHTS.get(topic, TOPIC_WEIGHTS["other"])
         bump = SEVERITY_BUMP.get(max_sev, 0)
 
         # Count factor: rewards many related issues but caps the effect
@@ -700,24 +707,24 @@ EVIDENCE_TARGETS: Dict[str, List[str]] = {
 }
 
 
-def add_top_risk_narratives(
-    risk_items: List[Dict[str, Any]],
+def add_flagged_item_narratives(
+    items: List[Dict[str, Any]],
     *,
     max_client_questions: int = 3,
     max_summary_points: int = 3,
 ) -> List[Dict[str, Any]]:
     """
-    Enrich each top risk item with a structured 'narrative' object and a rendered_text view.
+    Enrich each flagged item with a structured 'narrative' object and a rendered_text view.
     This keeps structured fields as the source of truth while still enabling PDF/Markdown export.
 
     Enhancement:
-      - If the risk item includes standardized findings (item["findings"]),
+      - If the flagged item includes standardized findings (item["findings"]),
         the narrative will lead with "Key findings: ..." before sample messages.
       - Findings are stored explicitly in the structured narrative for UI/analytics stability.
     """
     enriched: List[Dict[str, Any]] = []
 
-    for item in risk_items:
+    for item in items:
         topic = item.get("topic", "other")
         title = item.get("title", topic)
 
@@ -1190,7 +1197,7 @@ def build_executive_summary(packet: Dict[str, Any]) -> Dict[str, Any]:
     """
 
     meta = packet.get("meta", {}) or {}
-    top_items = (packet.get("top_risks", {}) or {}).get("items", []) or []
+    top_items = (packet.get("flagged_items", {}) or {}).get("items", []) or []
 
     policy_dict = packet.get("policy") or {}
 
@@ -1205,7 +1212,7 @@ def build_executive_summary(packet: Dict[str, Any]) -> Dict[str, Any]:
 
     topn_items = top_items[:top_n]
 
-    exec_risks: List[Dict[str, Any]] = []
+    exec_items: List[Dict[str, Any]] = []
     severities = []
     evidence_topics: List[str] = []
 
@@ -1214,7 +1221,7 @@ def build_executive_summary(packet: Dict[str, Any]) -> Dict[str, Any]:
         role = _role_from_ref_ids(list(ref_ids))
         narrative = (item.get("narrative") or {}).get("rendered_text")
 
-        exec_risks.append(
+        exec_items.append(
             {
                 "rank": item.get("rank"),
                 "topic": item.get("topic"),
@@ -1241,42 +1248,43 @@ def build_executive_summary(packet: Dict[str, Any]) -> Dict[str, Any]:
     p0 = int(by_priority.get("P0", 0))
     p1 = int(by_priority.get("P1", 0))
 
-    blocking_topics: List[str] = []
+    priority_topics: List[str] = []
     for q in (ccp.get("questions") or []):
         if q.get("priority") == "P0":
             t = q.get("topic")
             if t:
-                blocking_topics.append(str(t))
-    blocking_topics = _dedupe_preserve_order(blocking_topics)
+                priority_topics.append(str(t))
+    priority_topics = _dedupe_preserve_order(priority_topics)
 
-    # Overall risk posture (mechanical)
+    # Overall review status (mechanical)
     posture: str
     if any(s == "high" for s in severities):
-        posture = "elevated"
+        posture = "needs_attention"
     elif any(s == "medium" for s in severities):
-        posture = "moderate"
+        posture = "some_follow_up"
     else:
-        posture = "low"
+        posture = "minimal_follow_up"
 
     return {
     "schema_version": meta.get("schema_version"),
     "window_start": meta.get("window_start"),
     "window_end": meta.get("window_end"),
+    "disclaimer": policy_dict.get("disclaimer_text"),
     "policy": {
         "name": policy_name,
         "version": policy_version,
         "label": policy_label,
     },
-    "top_risks": exec_risks,
+    "flagged_items": exec_items,
     "client_followup": {
         "required_p0": p0,
         "recommended_p1": p1,
-        "blocking_topics": blocking_topics,
+        "priority_topics": priority_topics,
     },
     "evidence_planning": {
         "items": _dedupe_preserve_order(evidence_topics),
     },
-    "overall_risk_posture": posture,
+    "overall_review_status": posture,
     }
 
 
@@ -1299,8 +1307,8 @@ def build_attorney_review_packet(result: BuildResult, policy=DEFAULT_POLICY) -> 
     grouped_by_cat = _group_issues_by_category(result.issues)
     top = _top_issues(result.issues, n=3)
 
-    top_risk_items = build_top_risk_summary(result.issues, n=5)
-    top_risk_items = add_top_risk_narratives(top_risk_items)
+    flagged_item_entries = build_flagged_item_summary(result.issues, n=5)
+    flagged_item_entries = add_flagged_item_narratives(flagged_item_entries)
 
     # Timelines
     beneficiary = result.case.beneficiary
@@ -1340,8 +1348,8 @@ def build_attorney_review_packet(result: BuildResult, policy=DEFAULT_POLICY) -> 
                 for w in result.joint_residency.windows
             ],
         },
-        "top_risks": {
-            "items": top_risk_items,
+        "flagged_items": {
+            "items": flagged_item_entries,
         },
         "issues": {
             "summary": {

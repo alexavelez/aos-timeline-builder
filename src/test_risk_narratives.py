@@ -1,7 +1,7 @@
 # src/test_risk_narratives.py
 
 from src.validate import Issue
-from src.packet import build_top_risk_summary, add_top_risk_narratives
+from src.packet import build_flagged_item_summary, add_flagged_item_narratives
 
 
 def test_risk_narrative_structure_and_rendered_text():
@@ -22,8 +22,8 @@ def test_risk_narrative_structure_and_rendered_text():
         ),
     ]
 
-    top = build_top_risk_summary(issues, n=3)
-    enriched = add_top_risk_narratives(top)
+    top = build_flagged_item_summary(issues, n=3)
+    enriched = add_flagged_item_narratives(top)
 
     assert len(enriched) >= 1
     item0 = enriched[0]

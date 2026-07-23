@@ -1,5 +1,5 @@
 from src.validate import Issue
-from src.packet import build_top_risk_summary
+from src.packet import build_flagged_item_summary
 
 
 def test_no_shared_residence_near_marriage_finding_and_resolution():
@@ -12,7 +12,7 @@ def test_no_shared_residence_near_marriage_finding_and_resolution():
             ),
         )
     ]
-    top = build_top_risk_summary(issues, n=3)
+    top = build_flagged_item_summary(issues, n=3)
     assert top[0]["topic"] == "marriage"
     assert "no_shared_residence_near_marriage" in top[0]["findings"]["codes"]
     assert top[0]["resolution_type"] == "prepare_evidence"
@@ -28,7 +28,7 @@ def test_long_separation_near_marriage_finding_and_resolution():
             ),
         )
     ]
-    top = build_top_risk_summary(issues, n=3)
+    top = build_flagged_item_summary(issues, n=3)
     assert top[0]["topic"] == "marriage"
     assert "long_separation_near_marriage" in top[0]["findings"]["codes"]
     assert top[0]["resolution_type"] == "prepare_evidence"

@@ -130,7 +130,7 @@ def analyze_employment_authorization(
             )
         )
 
-        # Beneficiary-only: additional "clarify risk" flag for very long absences.
+        # Beneficiary-only: additional "needs clarification" flag for very long absences.
         if role == "beneficiary" and interval.days_abroad >= 180:
             issues.append(
                 Issue(

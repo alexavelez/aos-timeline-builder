@@ -51,15 +51,19 @@ def export_packet_markdown(packet: Dict[str, Any]) -> str:
         if policy_label:
             parts.append(f"_Policy: {policy_label}_")
 
-        posture = ex.get("overall_risk_posture")
-        if posture:
-            parts.append(f"- **Overall risk posture:** {str(posture).upper()}")
+        disclaimer = ex.get("disclaimer")
+        if disclaimer:
+            parts.append(f"> {disclaimer}")
 
-        # Top n risks
+        posture = ex.get("overall_review_status")
+        if posture:
+            parts.append(f"- **Overall review status:** {str(posture).replace(chr(95), chr(32)).upper()}")
+
+        # Top N flagged items
         parts.append("")
-        top_n = len(ex.get("top_risks") or [])
-        parts.append(f"### Top Risks (Top {top_n})")
-        for idx, item in enumerate(ex.get("top_risks") or [], start=1):
+        top_n = len(ex.get("flagged_items") or [])
+        parts.append(f"### Flagged Items (Top {top_n})")
+        for idx, item in enumerate(ex.get("flagged_items") or [], start=1):
             topic = item.get("topic")
             role = item.get("role")
             severity = item.get("severity")
@@ -75,9 +79,9 @@ def export_packet_markdown(packet: Dict[str, Any]) -> str:
         parts.append("### Client Follow-Up")
         parts.append(f"- **Required (P0):** {follow.get('required_p0', 0)}")
         parts.append(f"- **Recommended (P1):** {follow.get('recommended_p1', 0)}")
-        blocking = follow.get("blocking_topics") or []
+        blocking = follow.get("priority_topics") or []
         if blocking:
-            parts.append(f"- **Blocking topics:** {', '.join(blocking)}")
+            parts.append(f"- **Priority topics:** {', '.join(blocking)}")
 
         # Evidence planning snapshot
         ev = (ex.get("evidence_planning") or {}).get("items") or []
@@ -109,13 +113,13 @@ def export_packet_markdown(packet: Dict[str, Any]) -> str:
             parts.append("```")
         parts.append("")
 
-    # Top risks
-    top_risks = packet.get("top_risks", {}).get("items", [])
-    parts.append("## Top Risks")
-    if not top_risks:
-        parts.append("No top risks generated.")
+    # Flagged items
+    flagged_items = packet.get("flagged_items", {}).get("items", [])
+    parts.append("## Flagged Items")
+    if not flagged_items:
+        parts.append("No flagged items generated.")
     else:
-        for idx, item in enumerate(top_risks, start=1):
+        for idx, item in enumerate(flagged_items, start=1):
             topic = item.get("topic", "other")
             score = item.get("score")
             severity = item.get("severity")
@@ -194,13 +198,18 @@ def export_packet_pdf(packet: Dict[str, Any], output_path: str | Path) -> Path:
     y -= 8
 
     ex = packet.get("executive_summary") or {}
-    posture = ex.get("overall_risk_posture")
+    disclaimer = ex.get("disclaimer")
+    if disclaimer:
+        draw_line(disclaimer)
+        y -= 4
+
+    posture = ex.get("overall_review_status")
     if posture:
-        draw_line(f"Overall risk posture: {str(posture).upper()}")
+        draw_line(f"Overall review status: {str(posture).replace(chr(95), chr(32)).upper()}")
         y -= 6
 
-    top_items = ex.get("top_risks") or []
-    draw_line(f"Top Risks (Top {len(top_items)})", bold=True)
+    top_items = ex.get("flagged_items") or []
+    draw_line(f"Flagged Items (Top {len(top_items)})", bold=True)
     if not top_items:
         draw_line("(none)")
     else:
@@ -221,9 +230,9 @@ def export_packet_pdf(packet: Dict[str, Any], output_path: str | Path) -> Path:
     draw_line("Client Follow-Up", bold=True)
     draw_line(f"Required (P0): {follow.get('required_p0', 0)}")
     draw_line(f"Recommended (P1): {follow.get('recommended_p1', 0)}")
-    blocking = follow.get("blocking_topics") or []
+    blocking = follow.get("priority_topics") or []
     if blocking:
-        draw_line("Blocking topics: " + ", ".join([str(b) for b in blocking]))
+        draw_line("Priority topics: " + ", ".join([str(b) for b in blocking]))
     y -= 6
 
     draw_line("Evidence Planning", bold=True)
@@ -260,9 +269,9 @@ def export_packet_pdf(packet: Dict[str, Any], output_path: str | Path) -> Path:
                 draw_line(line)
         y -= 8
 
-    # Top risks
-    draw_line("Top Risks", bold=True)
-    items = packet.get("top_risks", {}).get("items", [])
+    # Flagged items
+    draw_line("Flagged Items", bold=True)
+    items = packet.get("flagged_items", {}).get("items", [])
     if not items:
         draw_line("(none)")
     else:

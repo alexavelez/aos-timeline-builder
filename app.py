@@ -3,7 +3,7 @@ AOS Timeline Builder - Streamlit app
 
 Wires user-provided case data into the existing analysis pipeline
 (src.packet.build_packet_from_json) and renders the resulting attorney
-review packet: an executive summary, full risk/issue detail, a
+review packet: an executive summary, full review/issue detail, a
 copy/paste-ready client clarification email, and raw timelines.
 Also offers Markdown/PDF export of the same packet.
 
@@ -346,7 +346,11 @@ def main() -> None:
     st.set_page_config(page_title="AOS Timeline Builder", layout="wide")
     st.title("AOS Timeline Builder")
     st.caption(
-        "AI-assisted timeline and risk review for marriage-based adjustment of status cases."
+        "Rules-based timeline and consistency review for marriage-based adjustment of status (I-485) cases. This tool flags data gaps and inconsistencies for staff review — it does not provide legal advice, predict case outcomes, or replace attorney/accredited representative judgment."
+    )
+    st.info(
+        "Draft QC output. Attorney/accredited representative review required before relying on any flagged item.",
+        icon="ℹ️",
     )
 
     if "case_json" not in st.session_state:
@@ -433,17 +437,21 @@ def _render_executive_summary(packet: dict) -> None:
     ex = packet.get("executive_summary", {}) or {}
     policy = ex.get("policy", {}) or {}
 
+    disclaimer = ex.get("disclaimer")
+    if disclaimer:
+        st.caption(disclaimer)
+
     st.subheader(f"Policy: {policy.get('label', 'Default')}")
 
-    posture = ex.get("overall_risk_posture")
+    posture = ex.get("overall_review_status")
     if posture:
-        st.metric("Overall risk posture", str(posture).upper())
+        st.metric("Overall review status", str(posture).replace("_", " ").upper())
 
-    st.markdown("### Top risks")
-    top_risks = ex.get("top_risks") or []
-    if not top_risks:
-        st.write("No risks identified for this case.")
-    for i, item in enumerate(top_risks, start=1):
+    st.markdown("### Flagged items")
+    flagged_items = ex.get("flagged_items") or []
+    if not flagged_items:
+        st.write("No items flagged for this case.")
+    for i, item in enumerate(flagged_items, start=1):
         severity = item.get("severity", "")
         badge = SEVERITY_BADGE.get(severity, "⚪")
         header = f"{badge} {i}. {item.get('topic')} ({item.get('role')}) — {severity} — {item.get('resolution_type')}"
@@ -455,9 +463,9 @@ def _render_executive_summary(packet: dict) -> None:
     col1, col2 = st.columns(2)
     col1.metric("Required (P0)", follow.get("required_p0", 0))
     col2.metric("Recommended (P1)", follow.get("recommended_p1", 0))
-    blocking = follow.get("blocking_topics") or []
+    blocking = follow.get("priority_topics") or []
     if blocking:
-        st.warning("Blocking topics: " + ", ".join(blocking))
+        st.warning("Priority topics: " + ", ".join(blocking))
 
     st.markdown("### Evidence planning")
     evidence_items = (ex.get("evidence_planning") or {}).get("items") or []
@@ -469,10 +477,10 @@ def _render_executive_summary(packet: dict) -> None:
 
 
 def _render_attorney_detail(packet: dict) -> None:
-    st.markdown("### All risk clusters")
-    items = packet.get("top_risks", {}).get("items", [])
+    st.markdown("### All flagged items")
+    items = packet.get("flagged_items", {}).get("items", [])
     if not items:
-        st.write("No risk clusters generated.")
+        st.write("No flagged items generated.")
     for i, item in enumerate(items, start=1):
         severity = item.get("severity", "")
         badge = SEVERITY_BADGE.get(severity, "⚪")

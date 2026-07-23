@@ -60,7 +60,7 @@ def main():
     packet = build_attorney_review_packet(result)
 
     print("\nTOP RISKS:")
-    for item in packet["top_risks"]["items"]:
+    for item in packet["flagged_items"]["items"]:
         print("- Topic:", item["topic"])
         print("  Findings:", item.get("findings", {}).get("codes"))
         print("  Severity:", item.get("severity"))

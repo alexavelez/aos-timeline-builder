@@ -63,13 +63,13 @@ def test_packet_includes_schema_version_and_uses_frozen_enums():
     assert ex.get("schema_version") == PACKET_SCHEMA_VERSION
 
     # Executive summary must cap at 5 items and use frozen role values.
-    ex_items = ex.get("top_risks") or []
+    ex_items = ex.get("flagged_items") or []
     assert len(ex_items) <= 5
     for it in ex_items:
         assert it.get("role") in ALLOWED_EXECUTIVE_ROLES
 
     # Topics must come from the frozen set.
-    for item in packet.get("top_risks", {}).get("items", []):
+    for item in packet.get("flagged_items", {}).get("items", []):
         assert item["topic"] in ALLOWED_TOPIC_NAMES
 
         # Resolution types must come from the frozen set.

@@ -104,7 +104,7 @@ def analyze_travel(
       - Pair each EXIT with the next ENTRY => TravelInterval
       - Same-day exit+entry => is_brief=True (do NOT trigger long-absence scrutiny)
 
-    Integrity / RFE-risk flags (conservative):
+    Integrity / RFE-related flags (conservative):
       - EXIT without following ENTRY => HIGH
       - ENTRY without preceding EXIT:
           * first in-window event is ENTRY => LOW baseline-note (exit may be outside window)

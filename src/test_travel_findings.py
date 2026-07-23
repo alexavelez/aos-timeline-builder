@@ -1,9 +1,9 @@
 from src.validate import Issue
-from src.packet import build_top_risk_summary
+from src.packet import build_flagged_item_summary
 
 
 def _top_codes(issues):
-    top = build_top_risk_summary(issues, n=3)
+    top = build_flagged_item_summary(issues, n=3)
     return top[0]["findings"]["codes"]
 
 
